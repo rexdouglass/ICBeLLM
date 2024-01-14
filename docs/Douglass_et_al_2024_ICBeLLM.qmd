@@ -23,10 +23,12 @@ format:
 #  html: 
 #    code-fold: true
 #    html-math-method: katex
+#Too compile the html bits to docx you need webshot2 installed
+#remotes::install_github('yihui/knitr')
   docx:
     toc: false  # Table of contents for Word
     toc-depth: 2
-    #prefer-html: true
+    #prefer-html: false
 editor: source
 execute:
   output: false
@@ -81,30 +83,47 @@ We map each of the substantive ICBe coding tasks to an LLM prompting strategy (T
 
 ```{r, eval=T,output=F}
 
+
+library(magrittr)
+library(flextable)
+
+
 #install.packages("webshot")
 #webshot::install_phantomjs()
 
 #install.packages("knitr")
+#install.packages("webshot")
 library(knitr)
+#devtools::install_github("haozhu233/kableExtra")
 #install.packages("kableExtra")
 library(kableExtra)
 library(tidyverse)
+
 sheet_id <- "1h1ooSdlnep4HTwzAyKK05DX7h0cCVOYb4rQzqg1qGdo" # Replace this with your actual sheet ID
 csv_link <- paste0("https://docs.google.com/spreadsheets/d/", sheet_id, "/gviz/tq?tqx=out:csv&sheet=", "paper_table1")
 table1 <- read_csv(csv_link)
 
 table1 <- table1 %>% mutate_all(str_replace_all,"\r\n", " ") %>% mutate_all(replace_na, '') 
-kable_output <- kable(table1, caption = "Table 1: Comparison of ICBe to ICBeLLM Workflows", "html", align = c("l", "l", "l", "l", "l")) %>%
+kable_output <- table1 %>% kable( caption = "Table 1: Comparison of ICBe to ICBeLLM Workflows", "html", align = c("l", "l", "l", "l", "l")) %>%
   kable_styling(font_size = 10, full_width = FALSE) %>%
   column_spec(1, width = "15em") %>%  # Adjust the width as necessary
   column_spec(2, width = "20em") %>%
   column_spec(3, width = "15em") %>%
   column_spec(4, width = "15em") %>%
-  column_spec(5, width = "20em")
+  column_spec(5, width = "20em") %>%  
+  kableExtra::as_image(width = 8)
 
-library(kableExtra)
-library(magick)
-library(webshot2)
+
+library(huxtable) ; #install.packages('huxtable')
+
+# Assuming table1 is a dataframe
+car_hux <- table1 %>% as_huxtable( add_colnames = TRUE) %>% #, add_rownames = "Model"
+           set_font_size( 9) %>% 
+           as_flextable()
+
+#library(kableExtra)
+#library(magick)
+#library(webshot2)
 #install.packages("magick")
 #install.packages("webshot2")
 #kable_output %>%  save_kable("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/paper/paper2_temp_table.png")
@@ -113,10 +132,12 @@ library(webshot2)
 
 ```{r, eval=T,output=T}
 
+
 Sys.setenv("OPENSSL_CONF"="/dev/null") #https://stackoverflow.com/questions/68787119/issue-with-webshot-js-in-r
 #, results='asis'
 #print(kable_output)
-kable_output %>%   kableExtra::as_image(width = 8)
+#kable_output 
+car_hux
 
 ```
 
@@ -267,23 +288,28 @@ temp <- combined  %>% #screen out duplicate veents
 library(officer)
 tp_196 <- temp %>% #screen duplicate events here
   flextable() %>%
-  set_caption("Table 2: Cuban Missile Crisis") %>%
+  flextable::set_caption("Table 2: Cuban Missile Crisis") %>%
   flextable::fontsize(size = 7, part = "all") %>%
   flextable::bg( i = which( 1:nrow(temp) %% 2 == 1)  , j=1:3, part = "body", bg = "#EFEFEF") %>%
-  width(j = 1, width = 2.5) %>%
-  width(j = 2, width = 6) %>%
-  width(j = 3, width = 6) %>%
-  valign(j=1:3, valign = "top", part = "all") %>%
+  flextable::width(j = 1, width = 3.0) %>%
+  flextable::width(j = 2, width = 6) %>%
+  flextable::width(j = 3, width = 4.25) %>%
+  flextable::valign(j=1:3, valign = "top", part = "all") %>%
   colformat_md(j=3) %>%
-  merge_v( j = 1) %>%
-  merge_v( j = 2) %>% #merge duplicates if multiple events per event
+  flextable::merge_v( j = 1) %>%
+  flextable::merge_v( j = 2) %>% #merge duplicates if multiple events per event
   #merge_v( j = 2) %>% #breaks things
-  set_header_labels(col_keys = c("sentence_clean", "event_clean","icbellm_icons"), values = c("Original Sentence", "LLM Event Split","ICBeLLM Codings") ) %>%
-  padding(padding.top = 0, padding.bottom = 0) %>%
-  hline(j=1,i=c(1,which(temp$sentence_clean!=lag(temp$sentence_clean))), part = "body") %>% #, border = officer::fp_border(color = "gray")
-  hline(j=2,i=c(2,which(temp$sentence_clean!=lag(temp$sentence_clean)))-1, part = "body")  %>% #, border = officer::fp_border(color = "gray")
-  hline(j=3,i=c(2,which(temp$sentence_clean!=lag(temp$sentence_clean)))-1, part = "body") #  , border = officer::fp_border(color = "gray")
-  
+  flextable::set_header_labels(col_keys = c("sentence_clean", "event_clean","icbellm_icons"), values = c("Original Sentence", "LLM Event Split","ICBeLLM Codings") ) %>%
+  flextable::padding(padding.top = 0, padding.bottom = 0) %>%
+  flextable::hline(j=1,i=c(1,which(temp$sentence_clean!=lag(temp$sentence_clean))), part = "body") %>% #, border = officer::fp_border(color = "gray")
+  flextable::hline(j=2,i=c(2,which(temp$sentence_clean!=lag(temp$sentence_clean)))-1, part = "body")  %>% #, border = officer::fp_border(color = "gray")
+  flextable::hline(j=3,i=c(2,which(temp$sentence_clean!=lag(temp$sentence_clean)))-1, part = "body") #  , border = officer::fp_border(color = "gray")
+
+
+#This is all broken unfortunately so you have to screenshot the html yourself
+#devtools::install_github("davidgohel/flextable")
+#flextable::save_as_image(x=tp_196 , path = "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/precision_191.svg", zoom=1)
+
 #set_flextable_defaults(font.family = "Liberation Sans")
 #Ok this is just broken and it's not getting fixed. I can take a screenshot of the html page. That's my only option.
 #flextable::save_as_image(x=tp_196 , path = "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/precision_191.svg", zoom=1)
@@ -293,12 +319,17 @@ tp_196 <- temp %>% #screen duplicate events here
 ```
 
 
-```{r, eval=F,output=T, output='asis'}
+```{r, eval=F,output=T}
 
-tp_196
+#, output='asis'
+
+tp_196 %>% 
+  autofit()
+#We do this in image now
 
 ```
 
+![Cuban Missile Crisis](/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/docs/Figure1_Cuban_Missile_Crisis3.png)
 
 
 ## 6.2 Quality Control
@@ -442,7 +473,7 @@ ICBeLLM_long_sentence <- ICBeLLM %>% select(-chunk,-chunk_type,  -events)  %>% #
 ```
 
 
-```{r, eval=T,  output=T}
+```{r, eval=F,  output=T}
 
 #ICBeLLM %>%
 #  dplyr::select(crisno, sentence_number, event_number, event_number_subevent, quality_control_thought, quality_control_say, quality_control_do_1, quality_control_do_2, quality_control_do_3, quality_control_do_4) %>%
@@ -474,7 +505,8 @@ ICBeLLM %>%
   dplyr::select(`Ontology Part`, `Percent Accepted`) %>%
   #knitr::kable() %>%
   knitr::kable( caption = "Table 3: Quality Control Acceptance Rate", "html", align = c("l", "l")) %>%
-  kableExtra::kable_styling(font_size = 10, full_width = FALSE) #%>%
+  kableExtra::kable_styling(font_size = 10, full_width = FALSE) %>%  
+  kableExtra::as_image(width = 8)
   #kableExtra::footnote(general = "Your footnote here.") 
 
 
@@ -571,7 +603,8 @@ recall_df %>%
   kable( caption = "Table 4: Recall by Variable", "html", align = c("l", "l", "l", "l", "l")) %>%
   kable_styling(font_size = 10, full_width = FALSE) %>%
 # Add footnote
-kableExtra::footnote("") #
+kableExtra::footnote("") %>%   
+  kableExtra::as_image(width = 8)
 
 
 
@@ -822,7 +855,4 @@ We stress that this was only a successful proof of concept, and just the floor f
 The ICBe project is an example of right place at the right time. It built an ontology with very high coverage and detail at the risk of being too unwieldy to justify another large commitment in human coders on new documents. But it completed just in time for the appearance of open source large language models that can easily implement the coding at scale. Both the research investment in ontology design and human labeling of examples made translation zero shot prompts for an LLM a relatively simple exercise.
 
 Given the pace of technological advancement, we expect event projects to continue this trend of shifting human labor towards ontology design. Undervalued definition and codebook authoring has been rebranded as ‘prompt engineering’ for a new generation of systems with a LLM in the loop rather than a hired human coder. No matter the justification, this is a positive development for empiricism in social science. Definitions can now we chosen at the time of the analysis and rerun overnight rather than precommitted to years earlier in the cycle of grant raising, hiring, training, project management, and eventually publication. This reduction in the lag between theory generation and data collection from an unexpected source is a critical and welcome development in the maturation of social science on international events.
-
-
-# 8.0 Appendix
 
