@@ -1,0 +1,842 @@
+
+```{r}
+verbose=F
+set.seed(1) 
+Sys.setenv(RETICULATE_PYTHON = "/home/skynet3/miniconda3/bin/python3")
+library(reticulate)
+use_python("/home/skynet3/miniconda3/bin/python3")
+crisno=196
+batch_size=1
+```
+
+# Shorten
+
+```{python}
+
+crisno=196
+
+def shorten_prompt(prompt_func, story, sentence, new_tokens, *args): #pass in the function
+  token_limit=2500 #this was supposed to be 2750 but I'm getting ooms at 2600??
+  #
+  story=story.split('References:')[0].strip() #first just try to shorten the story by removing referneces
+  current_count = generator.tokenizer.encode(prompt_func(story,sentence, *args), return_mask = False).shape[1] + new_tokens
+  if current_count > token_limit:
+    tokens_over=current_count-token_limit
+    final=prompt_func( generator.tokenizer.decode( generator.tokenizer.encode(story)[:,:-tokens_over] )[0] + " ...",sentence, *args) #Ok now we pull exactly the right amount of tokens off
+    final_count = generator.tokenizer.encode(final, return_mask = False).shape[1]
+    if final_count>token_limit:
+      raise Exception("Guessed wrong and too many tokens")
+    #print(generator.tokenizer.encode(final, return_mask = False).shape[1], flush=True)
+    return(final)
+  else:
+    return(prompt_func(story,sentence, *args))
+
+```
+
+
+```{python}
+
+batch_size=int(r.batch_size)
+
+import random
+import time
+import pandas as pd
+import re
+import os, glob
+import torch
+os.getcwd()
+import sys
+sys.path.insert(0, "/home/skynet3/Downloads/exllamav2/")
+
+from exllamav2 import(
+    ExLlamaV2,
+    ExLlamaV2Config,
+    ExLlamaV2Cache,
+    ExLlamaV2Tokenizer,
+    ExLlamaV2CacheBase,
+    ExLlamaV2Cache_8bit
+)
+
+from exllamav2.generator import (
+    ExLlamaV2BaseGenerator,
+    ExLlamaV2Sampler
+)
+
+
+
+model_directory =  "/home/skynet3/Downloads/LLAMA/Platypus2-70B-instruct-4.1bpw-6h-exl2/"
+#model_directory =  "/home/skynet3/Downloads/LLAMA/Platypus2-70B-Instruct-GPTQ/" #https://huggingface.co/garage-bAInd/Platypus2-70B-instruct
+
+config = ExLlamaV2Config()
+config.model_dir = model_directory
+config.prepare()
+config.max_batch_size=batch_size
+
+model = ExLlamaV2(config)
+print("Loading model: " + model_directory)
+
+#cache = ExLlamaV2Cache(model=model, lazy = True,  batch_size = batch_size) #changing lazy to false hoping it fixes my problem #, 
+cache = ExLlamaV2Cache(model=model, lazy = True,  batch_size = batch_size)
+#caches = [ExLlamaV2Cache(model, max_seq_len = 1000) for _ in range(batch_size)]
+#cache = ExLlamaV2Cache_8bit(model=model,lazy = True, batch_size = 4)
+model.load_autosplit(cache)
+
+tokenizer = ExLlamaV2Tokenizer(config)
+
+tokenizer.encode('#') #396
+tokenizer.eos_token
+tokenizer.eos_token_id
+tokenizer.encode(tokenizer.eos_token)
+
+#You have to define this out here because you can pick different ones at run time
+# Generate some text
+settings = ExLlamaV2Sampler.Settings()
+settings.temperature = 0#0.85
+settings.top_k = 0 #50
+settings.top_p = 0.8
+settings.token_repetition_penalty = 1.15
+settings.disallow_tokens(tokenizer, [tokenizer.eos_token_id])
+
+# monkey patch generator simple to have a custom stop token
+def generate_simple_rex(self, prompt: str or list,
+                      gen_settings: ExLlamaV2Sampler.Settings,
+                      num_tokens: int,
+                      seed = None,
+                      token_healing = False,
+                      encode_special_tokens = False,
+                      decode_special_tokens = False,
+                      loras = None,
+                      stop_token = "]"): #making the default ] bracket. If any token has a ] in it, it'll stop and strip it off
+      # Default stop token
+      if stop_token == -1: stop_token = self.tokenizer.eos_token_id
+      # Accept LoRA or list of LoRAs
+      if loras is not None and isinstance(loras, ExLlamaV2Lora): loras = [loras]
+      # Apply seed
+      if seed is not None: random.seed(seed)
+      # Tokenize input and produce padding mask if needed
+      batch_size = 1 if isinstance(prompt, str) else len(prompt)
+      ids = self.tokenizer.encode(prompt, encode_special_tokens = encode_special_tokens)
+      overflow = ids.shape[-1] + num_tokens - self.model.config.max_seq_len
+      if overflow > 0: ids = ids[:, overflow:]
+      mask = self.tokenizer.padding_mask(ids) if batch_size > 1 else None
+      # Prepare for healing
+      unhealed_token = None
+      if ids.shape[-1] < 2: token_healing = False
+      if token_healing:
+          unhealed_token = ids[:, -1:]
+          ids = ids[:, :-1]
+      # Process prompt and begin gen
+      self._gen_begin_base(ids, mask, loras)
+      # Begin filters
+      id_to_piece = self.tokenizer.get_id_to_piece_list()
+      if unhealed_token is not None:
+          unhealed_token_list = unhealed_token.flatten().tolist()
+          heal = [id_to_piece[x] for x in unhealed_token_list]
+      else:
+          heal = None
+      gen_settings.begin_filters(heal)
+      # Generate tokens
+      batch_eos = [False] * batch_size
+      for i in range(num_tokens):
+          logits = self.model.forward(self.sequence_ids[:, -1:], self.cache, input_mask = mask, loras = loras).float().cpu()
+          token, _, _ = ExLlamaV2Sampler.sample(logits, gen_settings, self.sequence_ids, random.random(), self.tokenizer, prefix_token = unhealed_token)
+          eos = False
+          if stop_token is not None:
+              for b in range(batch_size):
+                  if stop_token in self.tokenizer.decode( torch.tensor([[token[b, 0].item()]]) )[0]:
+                      batch_eos[b] = True
+                      if all(batch_eos): eos = True
+                  if batch_eos[b]:
+                      token[b, 0] = self.tokenizer.pad_token_id
+          self.sequence_ids = torch.cat([self.sequence_ids, token], dim = 1)
+          gen_settings.feed_filters(token)
+          unhealed_token = None
+          if eos: break
+      # Decode
+      text = self.tokenizer.decode(self.sequence_ids, decode_special_tokens = decode_special_tokens)
+      if isinstance(prompt, str): return text[0]
+      return text
+  
+ExLlamaV2BaseGenerator.generate_simple_rex = generate_simple_rex #monkey patch in our change
+# Initialize generator
+generator = ExLlamaV2BaseGenerator(model, cache, tokenizer)
+generator.warmup()
+
+#generator.generate_simple_rex("Python lists look like ['A", settings, num_tokens=150, seed = 1234, stop_token="]")
+
+
+```
+
+# Initialize (only do once or OOM)
+
+```{python}
+
+import numpy as np
+#generator=icbe_llm_generator() #we don't wrap this in a function anymore
+
+#pip install pyread
+import pyreadr
+crisis_narratives = pyreadr.read_r("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_in/crises_narratives_rex_2023_webscrape.Rds").popitem()[1]
+print(crisis_narratives.keys())
+
+#Load the story once for the whole thing
+story=crisis_narratives.text[crisno-1] #remember 0 indexing
+
+
+import time
+prompt = "Our story begins in the Scottish town of Auchtermuchty, where once"
+max_new_tokens = 150
+generator.warmup()
+time_begin = time.time()
+output = generator.generate_simple("Our story begins in the Scottish town of Auchtermuchty, where once",settings, num_tokens = 150  )  
+
+
+#output = generator.generate_simple_rex("The first 100 numbers are ...", settings, num_tokens=150, seed = 1234, stop_token="]")
+#output = generator.generate_simple("The first 100 numbers are ...", settings, num_tokens=150, seed = 1234) #, stop_token="]"
+
+time_end = time.time()
+time_total = time_end - time_begin
+
+print(output)
+print()
+print(f"Response generated in {time_total:.2f} seconds, {max_new_tokens} tokens, {max_new_tokens / time_total:.2f} tokens/second") 
+
+```
+
+## Verify OOMm side
+
+Looks like our limit is actually close to 2450. That's interesting. It's because I changed the max tokens window. It actually gave me less memory.
+Ok 2800 gets me 2801
+2900 gets me 2850 but not 2875
+
+```{r,eval=F}
+
+library(tidyverse)
+prompt=rep("\n",2850) %>% paste0(collapse='') #ok so \n is a single unicode character plus a stop character. Lots of others were weird. 
+prompt=rep("\n",5000) %>% paste0(collapse='') #ok so \n is a single unicode character plus a stop character. Lots of others were weird. 
+
+n_tokens=py$generator$tokenizer$encode(prompt)$shape[1]
+print(n_tokens)
+#output =  py$generator$generate_simple_rex( prompt , max_new_tokens = as.integer(1) , custom_stop= '\n'  ) #
+output =  py$generator$generate_simple_rex(prompt, py$settings, num_tokens=as.integer(1), seed = 1234, stop_token="]")
+max_tokens=3000 #the max tokens is now somewhere around 4098. Setting it to 3k just to limit things.
+
+```
+
+Function to parse the recodes in the google sheet
+```{r}
+
+recodes <- 'A = "troops", B = "armor", C = "artillery", D = "surface ships", E = "submarines", F = "aircraft carriers", G = "fighters", H = "bombers", I = "surveillance", J = "missiles", K = "satellites", L = "chemical", M = "biological", N = "nuclear", O = "none"'
+
+parse_recodes <- function(recodes){
+  # Split the string by commas
+  recodes_list <- strsplit(recodes, ",\n")
+  
+  # Initialize an empty named vector
+  named_vector <- character()
+  
+  # Loop through the list and evaluate each element
+  for (element in recodes_list[[1]]) {
+    # Split each element by '='
+    parts <- strsplit(element, "=")[[1]]
+    # Extract the name and value
+    name <- trimws(parts[1])
+    value <- trimws(parts[2])
+    # Remove double quotes from the value
+    value <- gsub('"', '', value)
+    # Append the name and value as a named element to the vector
+    named_vector[name] <- value
+  }
+  
+  # Print the named vector
+  return(named_vector)
+}
+
+```
+
+# Do just speech and thought for subevents
+
+```{r}
+
+library(tidyverse)
+sheet_id <- "1h1ooSdlnep4HTwzAyKK05DX7h0cCVOYb4rQzqg1qGdo" # Replace this with your actual sheet ID
+csv_link <- paste0("https://docs.google.com/spreadsheets/d/", sheet_id, "/gviz/tq?tqx=out:csv&sheet=", "prompts")
+# Read CSV data from the link
+df_prompts <- read_csv(csv_link) %>% janitor::remove_empty( "cols")
+
+df_events <- read_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_events_llm.csv", na = "")
+
+out_directory <- "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_events_thoughtspeech/"
+
+for(crisnumber in  c(196,471,(df_events$crisno %>% unique() %>% sort())   )){
+#for(crisnumber in c(471)   ){
+#for(crisnumber in c(196,471)   ){
+
+  #crisnumber=196 #376
+  outfile <- paste0(out_directory,"/",crisnumber,".csv")
+  df_in <- df_events %>% filter(crisno==crisnumber) %>% ungroup()
+  if(file.exists(outfile)){ #We now skip columns that exist and not files
+    df_in <- read_csv(outfile)
+  }
+  print(outfile)
+  first_chunks <- df_in %>% filter(!duplicated(chunk_number)) %>% mutate(chunk_nchar= chunk %>% nchar()) %>%
+    mutate(chunk_nchar_cumsum=cumsum(chunk_nchar)) %>% filter(chunk_nchar_cumsum<6000) %>% pull(chunk) %>% unique()  %>% paste0(collapse="\n")   
+  vars_to_do <- c("thought_leaf","speech_leaf" ) #,"thought_leaf" ,"background", "do_military_escalatory_leaf","do_military_deescalatory_leaf","do_unarmed_uncooperative_leaf","do_unarmed_cooperative_leaf"
+  vars_to_redo <- c() #vars_to_do #"do_unarmed_uncooperative_leaf" #this is how we control whether to redo codings or not Only put in vars when you change a prompt
+  for(k in 1:nrow(df_prompts)){ #iterates over prompts
+    var_name=df_prompts$variablename[k]
+    if( !var_name %in% vars_to_do){next}
+    if(  var_name %in% names(df_in) & !var_name %in% vars_to_redo  ){next} #If column is already filled out then do it again. If you want to redo a column you have to delete it from the file.
+    df_in[,var_name] <- NA #nuke the column
+    prompt=df_prompts$prompt[k]
+    recodes=parse_recodes(df_prompts$recodes[k])
+    stopcharacter=df_prompts$stopcharacter[k] %>% str_replace_all('"','') #for whatever reason I can't reliably put single quotes in the google doc
+
+    #print("------")
+    #print(var_name)
+    #print(recodes)
+    #print(stopcharacter)  
+    
+    for(i in 1:nrow(df_in)){
+        if(df_in$chunk_type[i]=="fragment"){ next }
+        if(df_in$event[i] == "" | is.na(df_in$event[i])) { next }
+        #if(df_in$step05_icb_coding[i] %in% c("","none of the above") | is.na(df_in$step05_icb_coding[i])) { next }
+        #if(!df_in$step06_icb_coding_precision[i] %in% c("yes") ) { next }
+        suppressWarnings({  
+          chunk = df_in$chunk[i]
+          sentence = df_in$sentence[i]
+          event = df_in$event[i]
+          
+          step05_icb_coding = df_in$step05_icb_coding[i]
+          step05_icb_coding_group = df_in$step05_icb_coding_group[i]
+          step07_actor_a = df_in$step07_actor_a[i]
+          step08_actor_b = df_in$step08_actor_b[i]
+        })
+        #print("------")
+        #print(sentence)
+        #print(event)
+        prompt0=glue::glue(prompt) #This failed because missing
+        #writeLines(prompt0)
+        output0 =  py$generator$generate_simple_rex( prompt0 , max_new_tokens = as.integer(10) , custom_stop= stopcharacter  ) #
+        response0= output0 %>% str_replace(prompt0 %>% as.character() %>% fixed(),"") %>% trimws() #the extra variables are built into the prompt and removed
+        #writeLines(response0)
+        df_in[i,var_name] <- response0
+      }
+      if(sum(!is.na(recodes))){
+        df_in <- df_in %>% ungroup() %>% # dplyr::select(sentence_number, background) %>%
+                           mutate(temp = as.character(get(var_name))) %>%
+                           select(-all_of(var_name)) %>%
+                           mutate(temp = ifelse(temp %>% str_detect("]"), temp %>% strsplit( ',' ), temp ) ) %>% # Ok rewrote this so that it only splits on commas if it detects a ] for a list
+                           unnest_longer(temp, keep_empty=T) %>% 
+                           mutate(temp = temp %>% trimws() %>% str_replace_all("'",'') %>% str_replace_all('"','')  %>% str_sub( 1, 1) %>% recode( !!!recodes)) %>% 
+                           group_by(across(-temp)) %>%
+                           summarise(temp := paste(temp %>% unique(), collapse = ';')) %>%
+                           rename(!!var_name := temp) %>% 
+                           arrange(crisno, chunk_number, sentence_number, event_number) %>%
+                           mutate_if(is.character, ~ifelse(. == "NA", NA_character_, .))
+      }
+
+    df_in %>% mutate_if(is.character, ~ifelse(. == "NA", NA_character_, .)) %>% write_csv(outfile,na = '') #update the file after each column now
+  }
+
+}
+
+
+
+#Combine
+out_directory <- "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_events_thoughtspeech/"
+in_files <- list.files(path = out_directory, full.names = T)
+df <- in_files %>% lapply(read_csv) %>% bind_rows() %>%
+      mutate(thoughtspeech_leaf = coalesce(speech_leaf, thought_leaf)) #%>% #decided to reverse the two, speech first and then thought only 1 per
+
+df %>% write_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_events_thoughtspeech.csv", na = "")
+
+
+```
+
+# We need to split thought and speech sentences
+
+```{r}
+
+library(tidyverse)
+library(glue)
+icbe_events_thoughtspeech <- read_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_events_thoughtspeech.csv", na = "")
+out_directory <- "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_events_primarysecondary/"
+
+
+for(crisnumber in  c(196,471,(icbe_events_thoughtspeech$crisno %>% unique() %>% sort())   )){
+#for(crisnumber in c(196,471)   ){
+#for(crisnumber in c(196)   ){
+
+  #crisnumber=196 #376
+  outfile <- paste0(out_directory,"/",crisnumber,".csv")
+  df_in <- icbe_events_thoughtspeech %>% filter(crisno==crisnumber) %>% ungroup()
+  if(file.exists(outfile)){ #if the file exists we skip because we don't need to resplit
+    next
+    #df_in <- read_csv(outfile)
+  }
+  #print(outfile)
+  first_chunks <- df_in %>% filter(!duplicated(chunk_number)) %>% mutate(chunk_nchar= chunk %>% nchar()) %>% mutate(chunk_nchar_cumsum=cumsum(chunk_nchar)) %>% filter(chunk_nchar_cumsum<3000) %>% pull(chunk) %>% unique()  %>% paste0(collapse="\n")  %>% str_split("References") %>% .[[1]] %>% .[1]
+  #print("------")
+  #print(var_name)
+  #print(recodes)
+  #print(stopcharacter)  
+  df_in$event_secondary <- NA
+  
+  for(i in 1:nrow(df_in)){
+      if( is.na(df_in$thoughtspeech_leaf[i]) | df_in$thoughtspeech_leaf[i]=='' ){next} #If there's no speech/thought we don't have to split it
+      if(df_in$chunk_type[i]=="fragment"){ next } #if it's a degenerate sentencew we don't ahve to split it
+      if(df_in$event[i] == "" | is.na(df_in$event[i])) { next } #If there's no even we don't ahve to spli tit
+      #if(df_in$step05_icb_coding[i] %in% c("","none of the above") | is.na(df_in$step05_icb_coding[i])) { next }
+      #if(!df_in$step06_icb_coding_precision[i] %in% c("yes") ) { next }
+      suppressWarnings({  
+        chunk = df_in$chunk[i]
+        sentence = df_in$sentence[i]
+        event = df_in$event[i]
+        thoughtspeech_leaf = df_in$thoughtspeech_leaf[i]
+        step05_icb_coding = df_in$step05_icb_coding[i]
+        step05_icb_coding_group = df_in$step05_icb_coding_group[i]
+        step07_actor_a = df_in$step07_actor_a[i]
+        step08_actor_b = df_in$step08_actor_b[i]
+      })
+      #print("------")
+      #print(sentence)
+      #print(event)
+      thoughtspeech_leaf_question <- thoughtspeech_leaf %>% recode(  #Rewrite the prompt very specifically to ask about the thought or speech being described
+        "start of crisis" = "that started the crisis for them is",
+        "end of crisis" = "that ended the crisis for them is",
+        "desire" = "they desired is",
+        "fear" = "they feared is",
+        "victory" = "they perceived victory resulting from is",
+        "defeat" = "they perceived defeat resulting from is",
+        "territory" = "they held a territorial aim to achieve is",
+        "policy" = "they held a policy policy aim of inducing is",
+        "regime/government change" = "A complete sentence describing the specific action They held regime/government change aims to prevent the specific act of",
+        "preemption" = "they wanted to preempt is",
+        "discover fact" = "they discovered a fact about is",
+        "become convinced" = "they became convinced about is",
+        "ultimatum" = "the ultimatum threatens is",
+        "offer" = "they offered is",
+        "offer, without conditions" = "they made an unconditional offer to perform is",
+        "express intent" = "they expressed intent to perform is",
+        "threaten" = "they threatened is",
+        "promise" = "they promised is",
+        "demand" = "they demmanded is",
+        "appeal" = "they appealed for is",
+        "accuse" = "they accused of undertaking is",
+        "reject" = "they rejected is",
+        "accept" = "they accepted is",
+        "disapprove" = "they dissaproved of is",
+        "praise" = "they praised is",
+      )
+      
+      prompt0 <- glue('You are a military historian building a conflict event dataset.\n',
+                     '### Instruction: Carefully read this event and be prepared to dissagregate it into a primary and secondary act.\n',
+                     'Story: "{chunk}"\n',
+                     'Paragraph: "{chunk}"\n',
+                     'Specific Sentence: "{sentence}"\n',
+                     'Specific Event: "{event}"\n',
+                     'Criteria:\n1) Is a complete sentence.\n2) Only describes an international action.\n3) Does not describe a communication or perception.\n4) Removes information about the communication or perception.\n5) Does not simply duplicate the full sentence or event.\n',
+                     'Question: Meeting the criteria, in this event, the specific material action {thoughtspeech_leaf_question}?\n',
+                    "### Response: Below I have written a sentence meeting the above criteria. For example, if the the sentence event said 'Country A threatens to invade Country B' then I would have rewritten it only about the action, e.g. 'Country A invade Country B.' In the event '{event}', removing the part about '{thoughtspeech_leaf}', meeting the above criteria, and leaving only the action {thoughtspeech_leaf_question} '"
+                    )  
+      #prompt0=glue::glue(prompt) #This failed because missing
+      #writeLines(prompt0)
+      output0 =  py$generator$generate_simple_rex( prompt0 , max_new_tokens = as.integer(300) , custom_stop= "'"  ) #
+      response0= output0 %>% str_replace(prompt0 %>% as.character() %>% fixed(),"") %>% trimws() #the extra variables are built into the prompt and removed
+      #writeLines(response0)
+      df_in[i,"event_secondary"] <- response0
+  }
+  
+      df_in %>% mutate_if(is.character, ~ifelse(. == "NA", NA_character_, .)) %>% write_csv(outfile,na = '') #update the file after each column now
+}
+
+
+out_directory <- "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_events_primarysecondary//"
+in_files <- list.files(path = out_directory, full.names = T)
+df <- in_files %>% lapply(read_csv) %>% bind_rows() %>%
+        unite('event_combined',event,event_secondary, sep = "@", remove = TRUE, na.rm = T) %>%
+        mutate(event = strsplit(as.character(event_combined), "@")) %>%
+        unnest(event, keep_empty=T) %>%
+        distinct() %>%
+        group_by(crisno,sentence_number,event_number) %>%
+          mutate(event_number_subevent=row_number()) %>%
+        ungroup() %>%
+        dplyr::select(-event_combined) %>%
+        arrange(crisno,sentence_number,event_number, event_number_subevent)
+        #rename(subevent_thoughtspeech_leaf=thoughtspeech_leaf)
+
+
+df %>%
+  rename(subevent_thoughtspeech_leaf=thoughtspeech_leaf) %>% 
+  write_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_events_primarysecondary.csv", na = "")
+
+
+```
+
+
+
+# Do everything now for all events
+
+Rewriting this now to be batched. First create all the prompts. Then batch over them.
+shaved off 19%
+90.365 sec elapsed
+73
+```{r}
+
+#https://docs.google.com/spreadsheets/d/1h1ooSdlnep4HTwzAyKK05DX7h0cCVOYb4rQzqg1qGdo
+library(tidyverse)
+library(tictoc)
+sheet_id <- "1h1ooSdlnep4HTwzAyKK05DX7h0cCVOYb4rQzqg1qGdo" # Replace this with your actual sheet ID
+csv_link <- paste0("https://docs.google.com/spreadsheets/d/", sheet_id, "/gviz/tq?tqx=out:csv&sheet=", "prompts")
+# Read CSV data from the link
+df_prompts <- read_csv(csv_link) %>% janitor::remove_empty( "cols")
+
+icbe_events_primarysecondary <- read_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_events_primarysecondary.csv", na = "")
+
+out_directory <- "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_all_codings/"
+
+for(crisnumber in  c(196,471,(icbe_events_primarysecondary$crisno %>% unique() %>% sort())   )){
+#for(crisnumber in c(196,471) ){ #for debugging#
+#for(crisnumber in c(196) ){ #for debugging #,471,2:20 ,471
+
+  #crisnumber=196 #376
+  outfile <- paste0(out_directory,"/",crisnumber,".csv")
+  df_in <- icbe_events_primarysecondary %>% filter(crisno==crisnumber) %>% ungroup() %>%
+    group_by(crisno,sentence_number,event_number) %>%
+      mutate(event_number_subevent_max=max(event_number_subevent)) %>% #we're now hard checking to see if there's a speech or thought split. Never code a do for 1 if there is.
+    ungroup() %>% arrange(crisno,sentence_number,event_number,event_number_subevent)
+  if(file.exists(outfile)){ #We now skip columns that exist and not files
+    df_in <- read_csv(outfile, progress=F, show_col_types=F) %>%
+            group_by(crisno,sentence_number,event_number) %>%
+              mutate(event_number_subevent_max=max(event_number_subevent)) %>% #
+            ungroup() %>% arrange(crisno,sentence_number,event_number,event_number_subevent)
+  }
+  print(outfile)
+  first_chunks <- df_in %>% filter(!duplicated(chunk_number) & !duplicated(chunk) & chunk_type %in% 'sentences') %>% mutate(chunk_nchar= chunk %>% nchar()) %>% mutate(chunk_nchar_cumsum=cumsum(chunk_nchar)) %>% filter(chunk_nchar_cumsum<1500) %>% pull(chunk) %>% unique()  %>% paste0(collapse="\n")   
+
+  vars_to_do <- c(
+  #'background'  #decided to skip
+  #We shouldn't have to do these either because they're done ealier
+  'thought_leaf', #we don't recode these only grab the actors
+  'speech_leaf', #
+  'actors',
+  "actors_cleaned",
+  'do_military_escalatory_leaf'
+  ,'do_military_deescalatory_leaf'
+  ,'do_unarmed_uncooperative_leaf'
+  ,'do_unarmed_cooperative_leaf'
+  #,'date'  #we're going to skip date and duration for now, come back to for the next paper
+  #,'do_duration'
+  ,'do_actor_a'
+  ,'do_actor_b'
+  ,'say_actor_a'
+  ,'say_actor_b'
+  ,'think_actor_a',
+  'interact_domains','interact_units','interact_fatalities','interact_forces','interact_geoscope','interact_location','interact_location_defined','interact_territory'
+  ,'quality_control_thought'
+  ,'quality_control_say'
+  ,'quality_control_do_1'
+  ,'quality_control_do_2'
+  ,'quality_control_do_3'
+  ,'quality_control_do_4'
+) #c("background", "thought_leaf","speech_leaf", "do_military_escalatory_leaf","do_military_deescalatory_leaf","do_unarmed_uncooperative_leaf","do_unarmed_cooperative_leaf") #,
+  #
+  #'
+  #''thought_leaf','speech_leaf','think_actor_a','say_actor_a','say_actor_b', 'actors',"actors_cleaned"
+  #''do_actor_a','do_actor_b' ,'do_military_escalatory_leaf' ,'do_military_deescalatory_leaf' ,'do_unarmed_uncooperative_leaf' ,'do_unarmed_cooperative_leaf'
+  #'think_actor_a','say_actor_a','say_actor_b','do_actor_a', 'do_actor_b'
+  #'#'do_military_escalatory_leaf' ,'do_military_deescalatory_leaf' ,'do_unarmed_uncooperative_leaf'
+  #'#'do_military_escalatory_leaf' 
+  vars_to_redo <- c( ) #c('interact_units','interact_domains') #c('say_actor_a') #vars_to_do  'quality_control_thought' 'say_actor_a','say_actor_b'  'say_actor_a','say_actor_b'
+  for(var_name in df_prompts$variablename){
+    k= which(df_prompts$variablename==var_name)
+    if( !var_name %in% vars_to_do){next}
+    #if(  var_name %in% names(df_in) & !var_name %in% vars_to_redo ){ if(sum(!is.na(df_in[,var_name]) )) {next}} #If column is already filled out then do it again. If you want to redo a column you have to delete it from the file.
+    if(  var_name %in% names(df_in) & !var_name %in% vars_to_redo ){next} 
+    df_in[,var_name] <- NA #nuke the column
+    df_in[,paste0(var_name,"_prompt")] <- NA #nuke the prompt column
+    prompt=df_prompts$prompt[k]
+    max_new_tokens=df_prompts$max_new_tokens[k] %>% as.integer()
+    
+    recodes=parse_recodes(df_prompts$recodes[k])
+    stopcharacter=df_prompts$stopcharacter[k] %>% str_replace_all('"','') #for whatever reason I can't reliably put single quotes in the google doc
+
+    #print("------")
+    print(var_name)
+    tic()
+    #print(recodes)
+    #print(stopcharacter)  
+    
+    do_leafs = c("do_military_escalatory_leaf","do_military_deescalatory_leaf", "do_unarmed_uncooperative_leaf", "do_unarmed_cooperative_leaf",
+                 "quality_control_do_1","quality_control_do_2","quality_control_do_3","quality_control_do_4")
+    if( sum(do_leafs %in% names(df_in))==8 ){
+      df_in <- df_in %>% ungroup() %>%
+                mutate(do_leaf='') %>% #now we only merge dos if they pass QA, then it goes to actors and all the other stuff
+                mutate(do_leaf=ifelse(quality_control_do_1 %in% "correct", paste0(do_leaf, do_military_escalatory_leaf   %>% replace_na(''),sep=";"),do_leaf )) %>%
+                mutate(do_leaf=ifelse(quality_control_do_2 %in% "correct", paste0(do_leaf, do_military_deescalatory_leaf %>% replace_na(''),sep=";"),do_leaf)) %>%
+                mutate(do_leaf=ifelse(quality_control_do_3 %in% "correct", paste0(do_leaf, do_unarmed_uncooperative_leaf %>% replace_na(''),sep=";"),do_leaf)) %>%
+                mutate(do_leaf=ifelse(quality_control_do_4 %in% "correct", paste0(do_leaf, do_unarmed_cooperative_leaf   %>% replace_na(''),sep=";"),do_leaf)) %>%
+                mutate(do_leaf = do_leaf   %>% str_replace_all("^;+|;+$","") %>% str_replace_all(";+",";") ) 
+               #_leaf", do_military_escalatory_leaf,do_military_deescalatory_leaf, do_unarmed_uncooperative_leaf, do_unarmed_cooperative_leaf, na.rm = TRUE, remove = FALSE, sep = ";") %>% ungroup() #%>%
+        #dplyr::select(-do_military_escalatory_leaf,-do_military_deescalatory_leaf, -do_unarmed_uncooperative_leaf, -do_unarmed_cooperative_leaf) #You can't drop these because then it'll have to generate it again
+        
+    }
+
+
+
+    for(i in 1:nrow(df_in)){
+        suppressWarnings({
+          if(df_in$chunk_type[i]=="fragment"){ next }
+          if(df_in$event[i] == "" | is.na(df_in$event[i])) { next }
+        
+          #All actors only for chunks
+          if(!is.null(df_in$actors) & i>1){ 
+            if(var_name=="actors"  & df_in$chunk[i]==df_in$chunk[i-1] ){next} #don't code the same chunk twice
+          }
+          if(!is.null(df_in$actors)){ 
+            if(var_name=="actors_cleaned" & sum(!is.na(df_in$actors_cleaned_prompt))!=0  ) {next} #only do once & (is.na(df_in$actors[i]) | df_in$actors[i]=='')
+          }
+          #Only code say and thought for the first
+          if(  var_name %in% c('say_actor_a','say_actor_b','think_actor_a','thought_leaf','speech_leaf') & df_in$event_number_subevent[i]>1 ){next} #If not the first one then skip
+  
+          #skip think actor if not a thought
+          if(!is.null(df_in$thought_leaf)){ 
+            if(  var_name %in% c('think_actor_a','quality_control_thought') & ( df_in$thought_leaf[i]=='' | is.na(df_in$thought_leaf[i])) ){next} 
+          }
+          if(!is.null(df_in$quality_control_thought)){ 
+            if(  var_name %in% c('think_actor_a') & ( !df_in$quality_control_thought[i] %in% 'correct')) {next} #don't bother coding thought actor if rejected by QA
+          }
+          #skip speech actor if not a speech
+          if(!is.null(df_in$speech_leaf)){ 
+            if(  var_name %in% c('say_actor_a','say_actor_b','quality_control_say') & ( df_in$speech_leaf[i]=='' | is.na(df_in$speech_leaf[i])) ){next} 
+          }
+          if(!is.null(df_in$quality_control_say)){ 
+            if(  var_name %in% c('say_actor_a','say_actor_b') & !df_in$quality_control_say[i] %in% 'correct'  ){next} #don't code say actors if failed qa 
+          }
+          #skip do actor if not a do
+          if(!is.null(df_in$do_leaf)){ if(  var_name %in% c('do_actor_a','do_actor_b') & ( df_in$do_leaf[i]=='' | is.na(df_in$do_leaf[i])) ){next} }
+            
+          if(!is.null(df_in$do_military_escalatory_leaf)){if(  var_name %in% c('quality_control_do_1') & ( df_in$do_military_escalatory_leaf[i]=='' | is.na(df_in$do_military_escalatory_leaf[i])) ){next}}
+          if(!is.null(df_in$do_military_deescalatory_leaf)){if(  var_name %in% c('quality_control_do_2') & ( df_in$do_military_deescalatory_leaf[i]=='' | is.na(df_in$do_military_deescalatory_leaf[i])) ){next}}
+          if(!is.null(df_in$do_unarmed_uncooperative_leaf)){if(  var_name %in% c('quality_control_do_3') & ( df_in$do_unarmed_uncooperative_leaf[i]=='' | is.na(df_in$do_unarmed_uncooperative_leaf[i])) ){next}}
+          if(!is.null(df_in$do_unarmed_cooperative_leaf)){if(  var_name %in% c('quality_control_do_4') & ( df_in$do_unarmed_cooperative_leaf[i]=='' | is.na(df_in$do_unarmed_cooperative_leaf[i])) ){next}}
+  
+          #Skip do if a say or a thought. Only code those for the rewrites or if not a thought
+          if( df_in$event_number_subevent_max[i]>1 & #If this sentence was split
+              df_in$event_number_subevent[i]==1 &  #And this is the first one which should be thought or speech
+              var_name %in% c('do_military_escalatory_leaf','do_military_deescalatory_leaf','do_unarmed_uncooperative_leaf','do_unarmed_cooperative_leaf' )   #and one of the do codings
+              ){next} #then skip
+        
+          #Skip do codings if not a do
+          if(!is.null(df_in$do_leaf)){
+            if(  var_name %in% c('do_actor_a','do_actor_b', 'do_timing','interact_domains','interact_units','interact_fatalities','interact_forces','interact_geoscope','interact_location','interact_location_defined','interact_territory') & 
+                 ( df_in$do_leaf[i]=='' | is.na(df_in$do_leaf[i])) ){next}
+          }
+        #if(df_in$step05_icb_coding[i] %in% c("","none of the above") | is.na(df_in$step05_icb_coding[i])) { next }
+        #if(!df_in$step06_icb_coding_precision[i] %in% c("yes") ) { next }
+
+          chunk = df_in$chunk[i]
+          sentence = df_in$sentence[i]
+          event = df_in$event[i]
+          try({
+            actors_all = df_in$actors_all[i]
+            actors_all_lettered <- (actors_all %>% str_split("\n"))[[1]]
+            actors_all_lettered <- actors_all_lettered[actors_all_lettered!='']
+            actors_all_lettered <- paste0(LETTERS[1:length(actors_all_lettered)],") ",actors_all_lettered)
+            actors_all_lettered_collapsed=paste(actors_all_lettered, collapse="\n")
+            if(var_name %in% c('think_actor_a','say_actor_a','say_actor_b','do_actor_a','do_actor_b') ){
+              recodes=paste0(actors_all_lettered, collapse=",\n") %>% str_replace_all(fixed(") ")," =")  %>% parse_recodes()
+            }
+          })
+          actors = df_in$actors[i]
+          do_leaf = df_in$do_leaf[i]
+          background = df_in$background[i]
+          thought_leaf = df_in$thought_leaf[i]
+          think_actor_a = df_in$think_actor_a[i]
+          speech_leaf = df_in$speech_leaf[i]
+          say_actor_a = df_in$say_actor_a[i]
+          say_actor_b = df_in$say_actor_b[i]
+          do_military_escalatory_leaf = df_in$do_military_escalatory_leaf[i]
+          do_military_deescalatory_leaf = df_in$do_military_deescalatory_leaf[i]
+          do_unarmed_uncooperative_leaf = df_in$do_unarmed_uncooperative_leaf[i]
+          do_unarmed_cooperative_leaf = df_in$do_unarmed_cooperative_leaf[i]
+          do_actor_a = df_in$do_actor_a[i]
+          do_actor_b = df_in$do_actor_b[i]
+          do_timing = df_in$do_timing[i]
+          date = df_in$date[i]
+          do_duration = df_in$do_duration[i]
+          interact_domains = df_in$interact_domains[i]
+          interact_units = df_in$interact_units[i]
+          interact_fatalities = df_in$interact_fatalities[i]
+          interact_forces = df_in$interact_forces[i]
+          interact_geoscope = df_in$interact_geoscope[i]
+          interact_location = df_in$interact_location[i]
+          interact_territory = df_in$interact_territory[i]
+        })
+        #We don't do that now we skip explicitly
+        #prerequisites <- prompt %>% str_extract_all("\\{.*?\\}") %>% unlist() %>% str_remove_all( "[{}]") %>% setdiff("first_chunks") #if any of the prerequisites are missing then skip this question.
+        #if(sum(!is.na(prerequisites))){
+        #  if( sum(is.na(df_in[i,prerequisites])) ) { next } #If any are missing skip this one
+        #}
+        prompt0=glue::glue(prompt)  #This failed because missing
+        df_in[i,paste0(var_name,"_prompt")] <- prompt0
+    }
+     #
+    tobatch_ids <- which(!is.na(df_in[,paste0(var_name,"_prompt")]))
+    n <- ceiling(length(tobatch_ids) / batch_size)
+    grouping_factor <- gl(n, batch_size, length(tobatch_ids))
+    split_vector <- split(tobatch_ids, grouping_factor)
+    for(batch_ids in split_vector){
+      ids=unlist(batch_ids)
+      prompts= df_in[ids,paste0(var_name,"_prompt")] %>% unlist()
+      prompts <- c(prompts, rep(" ",batch_size-length(prompts)))
+      outputs =  py$generator$generate_simple_rex(prompts, py$settings, num_tokens=as.integer(max_new_tokens), seed = 1234, stop_token="]") #When it's confused it just picks C no matter what, wait it's ignoring the answer letters. You have to put the answer letters at the end.
+      responses= outputs %>% str_replace(prompts %>% as.character() %>% fixed(),"") %>% trimws()
+      df_in[ids,var_name] <- responses[1:length(ids)]
+      verbose=F
+      if(verbose){
+          #print("------")
+          #print(i)
+          #print(sentence)
+          #print(event)
+          writeLines(responses)
+      }    
+    }
+
+    options(dplyr.summarise.inform = FALSE)
+    options(tidyverse.quiet = TRUE)
+    if(sum(!is.na(recodes))  ){ #This only applies to letters, we'll have to clean everything else later
+      suppressWarnings({
+        #df_in[,var_name] %>% unlist() %>% print()
+        #df_in[,'say_actor_a_prompt'] %>% unlist() %>% print()
+        
+        df_in <- df_in %>% ungroup() %>% # dplyr::select(sentence_number, background) %>%
+                           mutate(temp = as.character(get(var_name))) %>%
+                           select(-all_of(var_name)) %>%
+                           mutate(temp = temp %>% trimws() %>% str_replace_all("^none.*|None",'') %>% trimws() ) %>% #If it starts with none go ahead and set it to NA automatically before doing any split things.
+                           mutate(temp = temp %>% strsplit( ',' ) )  %>% #  
+                           unnest_longer(temp, keep_empty=T) %>%
+                           mutate(temp = temp %>% strsplit( ';' ) )  %>% #  Lol if you show it an example that's already been processed it tries to mimic it. Lol
+                           unnest_longer(temp, keep_empty=T) %>%
+                           mutate(temp = temp %>% strsplit( '", "' ) )  %>% # Ok rewrote this so that it only splits on commas if it detects a ] for a list
+                           unnest_longer(temp, keep_empty=T) %>%
+                           mutate(temp = temp %>% strsplit( "', '" ) )  %>% # Ok rewrote this so that it only splits on commas if it detects a ] for a list
+                           unnest_longer(temp, keep_empty=T) %>%
+                           mutate(temp = temp %>% strsplit( ' and ' ) )  %>% # Ok rewrote this so that it only splits on commas if it detects a ] for a list
+                           unnest_longer(temp, keep_empty=T) %>%
+                           mutate(temp = temp %>% trimws() %>% str_replace_all("[^A-Za-z0-9 ]",'') %>% trimws() ) %>% #replace all the quotes to make them uniform
+                           mutate(temp = temp %>% strsplit( ' and ' ) )  %>% # Ok rewrote this so that it only splits on commas if it detects a ] for a list
+                           unnest_longer(temp, keep_empty=T) %>%
+                           mutate(temp = temp %>% trimws() %>% str_sub( 1, 1)  %>% toupper() %>% recode( !!!recodes)) %>%  #subset to the first letter for recoding
+                           group_by(across(-temp)) %>%
+                            summarise(temp := paste(temp %>% unique(), collapse = ';', sep=";")) %>%
+                           ungroup() %>%
+                           rename(!!var_name := temp) %>% 
+                           arrange(crisno, chunk_number, sentence_number, event_number) %>%
+                           mutate_if(is.character, ~ifelse(. == "NA", NA_character_, .))
+        #df_in[,var_name] %>% unlist() %>% print()
+      })
+    } else{
+      options(dplyr.summarise.inform = FALSE)
+      options(tidyverse.quiet = TRUE)
+      suppressWarnings({
+        df_in <- df_in %>% ungroup() %>% # dplyr::select(sentence_number, background) %>%
+                   mutate(temp = as.character(get(var_name))) %>%
+                   select(-all_of(var_name)) %>%
+                   mutate(temp = temp %>% strsplit( ',' ) )  %>% #  Lol if you show it an example that's already been processed it tries to mimic it. Lol
+                   unnest_longer(temp, keep_empty=T) %>%
+                   mutate(temp = temp %>% strsplit( ';' ) )  %>% #  Lol if you show it an example that's already been processed it tries to mimic it. Lol
+                   unnest_longer(temp, keep_empty=T) %>%
+                   mutate(temp = temp %>% strsplit( '", "' ) )  %>% # Ok rewrote this so that it only splits on commas if it detects a ] for a list
+                   unnest_longer(temp, keep_empty=T) %>%
+                   mutate(temp = temp %>% strsplit( "', '" ) )  %>% # Ok rewrote this so that it only splits on commas if it detects a ] for a list
+                   unnest_longer(temp, keep_empty=T) %>%
+                   mutate(temp = temp %>% strsplit( ' and ' ) )  %>% # Ok rewrote this so that it only splits on commas if it detects a ] for a list
+                   unnest_longer(temp, keep_empty=T) %>%
+                   mutate(temp = temp %>% trimws() %>% str_replace_all("[^A-Za-z0-9 ]",'') %>% trimws() ) %>% #replace all the quotes to make them uniform
+                   mutate(temp = temp %>% strsplit( ' and ' ) )  %>% # Ok rewrote this so that it only splits on commas if it detects a ] for a list
+                   unnest_longer(temp, keep_empty=T) %>%
+                   group_by(across(-temp)) %>%
+                    summarise(temp := paste(temp %>% unique() %>% na.omit(), collapse = ';', sep=";")) %>%
+                   ungroup() %>%
+                   rename(!!var_name := temp) %>% 
+                   arrange(crisno, chunk_number, sentence_number, event_number) %>%
+                   mutate_if(is.character, ~ifelse(. == "NA", NA_character_, .))
+      })
+    }
+
+    if(var_name=="actors"){ #clean up and unify the actors column
+      unique_actors <- df_in[,"actors"] %>% unlist() %>% str_split(",|;") %>% unlist() %>% trimws() %>% unique() %>% str_replace_all("'","") %>% str_replace_all('"',"") %>% trimws() %>% unique() %>% sort() %>% na.omit()
+      df_in[,'actors'] <- unique_actors %>% paste(collapse="\n")
+    }
+    if(var_name=="actors_cleaned"){ #clean up and unify the actors column
+      unique_actors <- df_in[,"actors_cleaned"] %>% unlist() %>% str_split(",|;") %>% unlist() %>% trimws() %>% unique() %>% str_replace_all("'","") %>% str_replace_all('"',"") %>% trimws() %>% unique() %>% sort() %>% na.omit()
+      df_in[,'actors_all'] <- unique_actors %>% paste(collapse="\n")
+    }
+    
+    df_in %>% mutate_if(is.character, ~ifelse(. == "NA", NA_character_, .)) %>% write_csv(outfile,na = '') #update the file after each column now
+    
+    # df_in  %>% 
+    # arrange(crisno,sentence_number,event_number, event_number_subevent) %>% 
+    # dplyr::select(sentence, 
+    #               event_number_subevent, 
+    #               event, 
+    #               #think_actor_a, 
+    #               #thought_leaf,
+    #               #say_actor_a , 
+    #               #speech_leaf , 
+    #               #say_actor_b ,
+    #               do_actor_a,
+    #               do_military_escalatory_leaf,
+    #               quality_control_do_1,
+    #               do_military_deescalatory_leaf,
+    #               quality_control_do_2,
+    #               do_unarmed_uncooperative_leaf,
+    #               quality_control_do_3,
+    #               do_unarmed_cooperative_leaf,
+    #               quality_control_do_4,
+    #               do_leaf,
+    #               do_actor_b, 
+    #               ) %>% View()
+
+    #toc()
+  }
+
+}
+
+
+#Combine
+out_directory <- "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_all_codings/"
+in_files <- list.files(path = out_directory, full.names = T)
+df <- in_files %>% lapply(read_csv) %>% lapply(function(df) mutate_all(df, as.character)) %>% bind_rows()  %>%
+        arrange(crisno,sentence_number,event_number, event_number_subevent)
+      #mutate(thoughtspeech_leaf = coalesce(thought_leaf, speech_leaf)) %>%
+      #dplyr::select(-thought_leaf,-speech_leaf)
+# df_events  <- df %>% 
+#     #mutate(sentence= ifelse(is.na(sentence_list), chunk, sentence_list)) %>%
+#     mutate(event = strsplit(as.character(events), "\n")) %>% 
+#     unnest(event, keep_empty=T) %>%
+#     mutate(event = event %>% str_replace("^[0-9\\. ]*", "")  %>% trimws() ) %>%
+#     group_by(crisno,sentence_number) %>%
+#       mutate(event_number=row_number()) %>%
+#     ungroup() %>%
+#     group_by(crisno, chunk_type=='fragment') %>%
+#       mutate(sentence_number_renumbered=row_number()) %>%
+#     ungroup() %>%
+#     mutate(sentence_number_renumbered = ifelse(chunk_type=='fragment', NA, sentence_number_renumbered)) 
+
+df %>% write_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_all_codings.csv", na = "")
+
+```
+
+```{r}
+
+df_in %>% filter(!is.na(speech_leaf)  ) %>% dplyr::select(sentence, event, say_actor_a_prompt, say_actor_a, speech_leaf, say_actor_b, quality_control_say)
+
+df_in   %>% dplyr::select(sentence, event, say_actor_a_prompt, say_actor_a, speech_leaf, say_actor_b, quality_control_say)
+
+
+df_in %>% filter(sentence %>% str_detect("That day Cuba responded by condemning the")) %>% glimpse()
+
+```
