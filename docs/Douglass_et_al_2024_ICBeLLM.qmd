@@ -82,63 +82,28 @@ The defining characteristic of the ICBe ontology is that it seeks to capture as 
 We map each of the substantive ICBe coding tasks to an LLM prompting strategy (Table 1). The main innovation is to use the LLM's ability to generate unstructured text to break the narrative into finer and finer events and then code the details of those events as a final step. First, the narrative is broken into paragraphs with simple regex and those paragraphs are processed by the LLM into sentences. Second, if a sentence describes more than one event, the LLM disaggregates and composes separate complete sentences around each distinct event. This step greatly improves on the original ICBe coding effort, where multiple events had to be tied to entire sentences strings because narrowing it down to specific text spans was too labor intensive. Third, each event is checked for a thought or speech behavior which might indicate a compound event. If one is found, the LLM further rewrites the event into a primary and secondary event, linking the two, but allowing each to be coded normally in the full workflow. Finally, a series of multiple choice and open ended responses extracts information about each event in accordance with the original ontology. After some steps we perform a quality assurance check where we move from selecting an answer to reviewing whether an answer is correct.
 
 ```{r, eval=T,output=F}
-
-
 library(magrittr)
 library(flextable)
-
-
-#install.packages("webshot")
-#webshot::install_phantomjs()
-
-#install.packages("knitr")
-#install.packages("webshot")
 library(knitr)
-#devtools::install_github("haozhu233/kableExtra")
-#install.packages("kableExtra")
 library(kableExtra)
 library(tidyverse)
+library(huxtable)
 
 sheet_id <- "1h1ooSdlnep4HTwzAyKK05DX7h0cCVOYb4rQzqg1qGdo" # Replace this with your actual sheet ID
 csv_link <- paste0("https://docs.google.com/spreadsheets/d/", sheet_id, "/gviz/tq?tqx=out:csv&sheet=", "paper_table1")
 table1 <- read_csv(csv_link)
 
-table1 <- table1 %>% mutate_all(str_replace_all,"\r\n", " ") %>% mutate_all(replace_na, '') 
-kable_output <- table1 %>% kable( caption = "Table 1: Comparison of ICBe to ICBeLLM Workflows", "html", align = c("l", "l", "l", "l", "l")) %>%
-  kable_styling(font_size = 10, full_width = FALSE) %>%
-  column_spec(1, width = "15em") %>%  # Adjust the width as necessary
-  column_spec(2, width = "20em") %>%
-  column_spec(3, width = "15em") %>%
-  column_spec(4, width = "15em") %>%
-  column_spec(5, width = "20em") %>%  
-  kableExtra::as_image(width = 8)
+table1 <- table1 %>% 
+  mutate_all(str_replace_all,"\r\n", " ") %>%
+  mutate_all(replace_na, '') 
 
+car_hux <- table1 %>%
+  as_huxtable( add_colnames = TRUE) %>%
+  set_font_size( 9) %>% 
+  as_flextable()
 
-library(huxtable) ; #install.packages('huxtable')
-
-# Assuming table1 is a dataframe
-car_hux <- table1 %>% as_huxtable( add_colnames = TRUE) %>% #, add_rownames = "Model"
-           set_font_size( 9) %>% 
-           as_flextable()
-
-#library(kableExtra)
-#library(magick)
-#library(webshot2)
-#install.packages("magick")
-#install.packages("webshot2")
-#kable_output %>%  save_kable("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/paper/paper2_temp_table.png")
-
-```
-
-```{r, eval=T,output=T}
-
-
-Sys.setenv("OPENSSL_CONF"="/dev/null") #https://stackoverflow.com/questions/68787119/issue-with-webshot-js-in-r
-#, results='asis'
-#print(kable_output)
-#kable_output 
+Sys.setenv("OPENSSL_CONF"="/dev/null")
 car_hux
-
 ```
 
 # 6.0 Evaluation
@@ -153,21 +118,29 @@ The Cuban Missile Crisis took place between the United States, Cuba, and the Sov
 
 ```{r, eval=T}
 
-icb_events_long <- readRDS(file="/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_in/ICBe_V1.1_long_clean.Rds")   #we need the clean version specifically
+icb_events_long <- readRDS(file="../data_in/ICBe_V1.1_long_clean.Rds")
+
 #Borrow the qcode mappings from the icbe long version
-value_normalized_to_value_qcode <- icb_events_long %>% dplyr::select(value_normalized, value_qcode) %>% distinct() %>% filter(!is.na(value_qcode)) %>%
-  mutate(value_qcode_clean = paste0("![](/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_in/flags_small/",value_qcode,".png)")) %>%
+value_normalized_to_value_qcode <- icb_events_long %>%
+  dplyr::select(value_normalized, value_qcode) %>%
+  distinct() %>%
+  filter(!is.na(value_qcode)) %>%
+  mutate(value_qcode_clean = paste0("![](../data_in/flags_small/",value_qcode,".png)")) %>%
   filter(!value_qcode %>% str_detect(";")) %>%
   mutate(value_qcode_clean=ifelse(value_normalized=='none','',value_qcode_clean)) #you can't use NA as a replacement
 
 #We're going to put data out into a zip file and ignore it
-#Combine
-out_directory <- "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_all_codings/"
-in_files <- list.files(path = out_directory, full.names = T)
-in_files %>% lapply(read_csv) %>% lapply(function(df) mutate_all(df, as.character)) %>% bind_rows()  %>%
-        arrange(crisno,sentence_number,event_number, event_number_subevent) %>% write_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_all_codings.csv", na = "")
-ICBeLLM_all_codings <- read_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_all_codings.csv")
+out_directory <- "../data_out/icbe_all_codings/"
 
+in_files <- list.files(path = out_directory, full.names = T)
+in_files %>%
+  lapply(read_csv) %>%
+  lapply(function(df) mutate_all(df, as.character)) %>%
+  bind_rows() %>%
+  arrange(crisno, sentence_number, event_number, event_number_subevent) %>%
+  write_csv("../data_out/icbe_all_codings.csv", na = "")
+
+ICBeLLM_all_codings <- read_csv("../data_out/icbe_all_codings.csv")
 ```
 
 
@@ -188,7 +161,10 @@ table196 <- ICBeLLM_all_codings %>%
             #dplyr::select(sentence_clean, sentence, event_clean,think_actor_a,thought_leaf) 
 
 #View(table196)
-table196 %>% filter(!is.na(thought_leaf) & event_number_subevent==1) %>% dplyr::select(sentence_clean, event_clean, think_actor_a, thought_leaf, quality_control_thought)
+table196 %>% 
+  filter(!is.na(thought_leaf) & event_number_subevent==1) %>% 
+  dplyr::select(sentence_clean, event_clean, think_actor_a, thought_leaf, quality_control_thought)
+
 thoughts <- table196 %>% 
             filter(!is.na(thought_leaf) & event_number_subevent==1) %>% #we're going to mechanically require it to be subevent 1
             filter(quality_control_thought=="correct") %>%
@@ -197,13 +173,16 @@ thoughts <- table196 %>%
             dplyr::select(crisno, sentence_number,event_number, event_number_subevent,sentence_clean, sentence, event_clean,icbellm) %>%
             mutate(table_ordering=1)
 
-table196 %>% filter(!is.na(speech_leaf) & event_number_subevent==1) %>% dplyr::select(sentence_clean, event_clean,  say_actor_a, speech_leaf, say_actor_b, quality_control_say)
-speech <- table196 %>% filter(!is.na(speech_leaf)  & event_number_subevent==1 ) %>% #we're going to mechanically require it to be subevent 1
-            #filter(quality_control_say=="correct") %>% #the speech filter isn't doing great
-            unite('icbellm', say_actor_a, speech_leaf, say_actor_b, sep = "->", remove = F, na.rm = T ) %>%
-            dplyr::select(crisno, sentence_number,event_number, event_number_subevent,sentence_clean, sentence, event_clean,icbellm) %>%
-            mutate(table_ordering=2)
+table196 %>% 
+  filter(!is.na(speech_leaf) & event_number_subevent==1) %>% 
+  dplyr::select(sentence_clean, event_clean,  say_actor_a, speech_leaf, say_actor_b, quality_control_say)
 
+speech <- table196 %>% 
+  filter(!is.na(speech_leaf)  & event_number_subevent==1 ) %>% #we're going to mechanically require it to be subevent 1
+            #filter(quality_control_say=="correct") %>% #the speech filter isn't doing great
+  unite('icbellm', say_actor_a, speech_leaf, say_actor_b, sep = "->", remove = F, na.rm = T ) %>%
+  dplyr::select(crisno, sentence_number,event_number, event_number_subevent,sentence_clean, sentence, event_clean,icbellm) %>%
+  mutate(table_ordering=2)
 
 table196 %>% 
   #filter( !is.na(do_leaf))%>% 
@@ -215,22 +194,24 @@ table196 %>%
                do_unarmed_cooperative_leaf , quality_control_do_4
                )
 
-do <- table196 %>% filter( !is.na(do_leaf)) %>%
-      mutate(do_leaf='') %>%
-      mutate(do_leaf=ifelse(quality_control_do_1 %in% "correct", paste0(do_leaf,do_military_escalatory_leaf,sep=";"),do_leaf )) %>%
-      mutate(do_leaf=ifelse(quality_control_do_2 %in% "correct", paste0(do_leaf,do_military_deescalatory_leaf,sep=";"),do_leaf)) %>%
-      mutate(do_leaf=ifelse(quality_control_do_3 %in% "correct", paste0(do_leaf,do_unarmed_uncooperative_leaf,sep=";"),do_leaf)) %>%
-      mutate(do_leaf=ifelse(quality_control_do_4 %in% "correct", paste0(do_leaf,do_unarmed_cooperative_leaf,sep=";"),do_leaf)) %>%
-      unite('icbellm', do_actor_a, do_leaf, do_actor_b, sep = "->" , remove = F, na.rm = T ) %>%
-      mutate(interact_fatalities=ifelse(interact_fatalities!="none","![](/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_in/flags_small/Q1056901.png)",interact_fatalities)) %>%
-      mutate(interact_forces=ifelse(interact_forces!="none","![](/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_in/flags_small/Q176799.png)",interact_fatalities)) %>%
+do <- table196 %>%
+  filter( !is.na(do_leaf)) %>%
+  mutate(do_leaf='') %>%
+  mutate(do_leaf=ifelse(quality_control_do_1 %in% "correct", paste0(do_leaf,do_military_escalatory_leaf,sep=";"),do_leaf )) %>%
+  mutate(do_leaf=ifelse(quality_control_do_2 %in% "correct", paste0(do_leaf,do_military_deescalatory_leaf,sep=";"),do_leaf)) %>%
+  mutate(do_leaf=ifelse(quality_control_do_3 %in% "correct", paste0(do_leaf,do_unarmed_uncooperative_leaf,sep=";"),do_leaf)) %>%
+  mutate(do_leaf=ifelse(quality_control_do_4 %in% "correct", paste0(do_leaf,do_unarmed_cooperative_leaf,sep=";"),do_leaf)) %>%
+  unite('icbellm', do_actor_a, do_leaf, do_actor_b, sep = "->" , remove = F, na.rm = T ) %>%
+  mutate(interact_fatalities=ifelse(interact_fatalities!="none","![](../data_in/flags_small/Q1056901.png)",interact_fatalities)) %>%
+  mutate(interact_forces=ifelse(interact_forces!="none","![](../data_in/flags_small/Q176799.png)",interact_fatalities)) %>%
       #interact_geoscope,interact_location,interact_territory
-      unite('icbellm', icbellm,interact_domains,interact_units,interact_fatalities,interact_forces, sep = "", remove = F, na.rm = T ) %>%
-      dplyr::select(crisno, sentence_number,event_number, event_number_subevent, sentence_clean, sentence, event_clean,icbellm) %>%
-      mutate(table_ordering=3) 
+  unite('icbellm', icbellm,interact_domains,interact_units,interact_fatalities,interact_forces, sep = "", remove = F, na.rm = T ) %>%
+  dplyr::select(crisno, sentence_number,event_number, event_number_subevent, sentence_clean, sentence, event_clean,icbellm) %>%
+  mutate(table_ordering=3) 
 
-combined <- bind_rows(
-      table196 %>%  dplyr::select(crisno, sentence_number,event_number, event_number_subevent,  sentence_clean, sentence, event_clean) %>% distinct(),
+combined <- bind_rows(table196 %>%
+                        dplyr::select(crisno, sentence_number,event_number, event_number_subevent, sentence_clean, sentence, event_clean) %>%
+                        distinct(),
       thoughts %>% dplyr::select(crisno, sentence_number,event_number, event_number_subevent,  sentence_clean, sentence, event_clean,icbellm,table_ordering) %>% distinct(),
       speech %>% dplyr::select(crisno, sentence_number,event_number, event_number_subevent,  sentence_clean, sentence, event_clean,icbellm,table_ordering) %>% distinct(),
       do  %>% dplyr::select(crisno, sentence_number,event_number, event_number_subevent,  sentence_clean, sentence, event_clean,icbellm,table_ordering) %>% distinct()
@@ -271,7 +252,6 @@ library(dplyr)
 library(flextable)
 library(ftExtra)
 
-
 library(magick)
 temp <- combined  %>% #screen out duplicate veents
   mutate(references=cumsum(sentence_clean %>% str_detect("References"))) %>% #Remove the ferences line
@@ -283,7 +263,6 @@ temp <- combined  %>% #screen out duplicate veents
   
   #mutate(sentence_clean=ifelse(sentence_clean==lag(sentence_clean) & row_number()>1,'',sentence_clean)) %>%
   #mutate(event_clean=ifelse(event_clean==lag(event_clean) & row_number()>1,'',event_clean))
-
 
 library(officer)
 tp_196 <- temp %>% #screen duplicate events here
@@ -304,7 +283,6 @@ tp_196 <- temp %>% #screen duplicate events here
   flextable::hline(j=1,i=c(1,which(temp$sentence_clean!=lag(temp$sentence_clean))), part = "body") %>% #, border = officer::fp_border(color = "gray")
   flextable::hline(j=2,i=c(2,which(temp$sentence_clean!=lag(temp$sentence_clean)))-1, part = "body")  %>% #, border = officer::fp_border(color = "gray")
   flextable::hline(j=3,i=c(2,which(temp$sentence_clean!=lag(temp$sentence_clean)))-1, part = "body") #  , border = officer::fp_border(color = "gray")
-
 
 #This is all broken unfortunately so you have to screenshot the html yourself
 #devtools::install_github("davidgohel/flextable")
@@ -329,8 +307,7 @@ tp_196 %>%
 
 ```
 
-![Cuban Missile Crisis](/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/docs/Figure1_Cuban_Missile_Crisis3.png)
-
+![Cuban Missile Crisis](Figure1_Cuban_Missile_Crisis3.png)
 
 ## 6.2 Quality Control
 
@@ -342,24 +319,23 @@ Our multiple choice prompting strategy is designed with speed in mind, requiring
 #A lot of our poor recall is just errors.
 #interact_location in the ICBe data has country names sometimes instead of the 5 options, I don't know why.
 
-
 library(tidyverse)
 library(stringi)
 library(glue)
 
 #New plan we're going to filter to only expert codings.
 #Dead sentences have no actors listed in the wide, just use that.
-events_agreed_long <- readRDS("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_in/ICBe_V1.1_events_agreed_long.Rds")
-events_agreed_long_filtered_experts_atleast2 <-  events_agreed_long %>%
-                                                 filter(sentence_span_text %>% str_detect("\\.$"))  %>% filter(expert==1) %>% #Removes 626 degenerate sentence 
-                                                 filter(!varname_normalized %>% str_detect("^condition_|raterconfidence|date_|interact_geoscope|duration|interact_location")) %>% #dropping dates and locations
-                                                 group_by(crisno, sentence_number_int_aligned, sentence_span_text, #event_number_int
-                                                 varname_normalized, value_normalized) %>%
-                                                  filter(n()>=2) %>% #The idea here is that if 2 or more experts listed a country as actor_a then we're going to count it. 
+events_agreed_long <- readRDS("../data_in/ICBe_V1.1_events_agreed_long.Rds")
+events_agreed_long_filtered_experts_atleast2 <- events_agreed_long %>%
+  filter(sentence_span_text %>%
+           str_detect("\\.$")) %>%
+  filter(expert==1) %>% #Removes 626 degenerate sentence 
+  filter(!varname_normalized %>% str_detect("^condition_|raterconfidence|date_|interact_geoscope|duration|interact_location")) %>% #dropping dates and locations
+  group_by(crisno, sentence_number_int_aligned, sentence_span_text, #event_number_int
+           varname_normalized, value_normalized) %>%
+  filter(n()>=2) %>% #The idea here is that if 2 or more experts listed a country as actor_a then we're going to count it. 
                                                    #even if they were talking about different events
-                                                 ungroup()
-
-
+  ungroup()
 
 temp <- events_agreed_long_filtered_experts_atleast2 %>%
                mutate(do_actor_a= ifelse(varname_normalized %in% c('do_actor_a'), value_normalized, NA)) %>%
@@ -372,11 +348,9 @@ temp <- events_agreed_long_filtered_experts_atleast2 %>%
                group_by(crisno, sentence_number_int_aligned, sentence_span_text , do_actor_a, do_actor_b, say_actor_a, say_actor_b, think_actor_a, varname_normalized) %>%
                summarise(value_normalized = value_normalized %>% unique() %>% sort() %>% paste(collapse=";")) 
   
-               
-events_agreed_long_filtered_experts_atleast2_wide <-   temp %>%
-  filter(!varname_normalized %in% c('crisno','sentence_number_int_aligned','sentence_span_text','think_actor_a','say_actor_a','say_actor_b','do_actor_a','do_actor_b',
-                                    'crisis', 'icb_survey_version', 'section', 'sentencenumber')) %>%
-  pivot_wider( id_cols=c(crisno, sentence_number_int_aligned, sentence_span_text , think_actor_a, say_actor_a, say_actor_b, do_actor_a, do_actor_b  ) ,
+events_agreed_long_filtered_experts_atleast2_wide <- temp %>%
+  filter(!varname_normalized %in% c('crisno','sentence_number_int_aligned','sentence_span_text','think_actor_a','say_actor_a','say_actor_b','do_actor_a','do_actor_b', 'crisis', 'icb_survey_version', 'section', 'sentencenumber')) %>%
+  pivot_wider( id_cols=c(crisno, sentence_number_int_aligned, sentence_span_text , think_actor_a, say_actor_a, say_actor_b, do_actor_a, do_actor_b),
                names_from=varname_normalized,
                values_from=value_normalized)
 
@@ -458,7 +432,7 @@ events_agreed_long_filtered <- events_agreed_wide_filtered %>%
 #126,399 tokens, 10,291 crisis-sentences
 dim(events_agreed_long_filtered)
 
-ICBeLLM <- read_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/icbe_all_codings.csv", na = "")
+ICBeLLM <- read_csv("../data_out/icbe_all_codings.csv", na = "")
 
 ICBeLLM_long_sentence <- ICBeLLM %>% select(-chunk,-chunk_type,  -events)  %>% #crisno, sentence_number, sentence, thought_leaf:interact_territory
                           mutate_all(as.character) %>% #across(thought_leaf:interact_territory
@@ -504,12 +478,8 @@ ICBeLLM %>%
                                                       "quality_control_thought" = "Thought")) %>%
   dplyr::select(`Ontology Part`, `Percent Accepted`) %>%
   #knitr::kable() %>%
-  knitr::kable( caption = "Table 3: Quality Control Acceptance Rate", "html", align = c("l", "l")) %>%
-  kableExtra::kable_styling(font_size = 10, full_width = FALSE) %>%  
-  kableExtra::as_image(width = 8)
-  #kableExtra::footnote(general = "Your footnote here.") 
-
-
+  flextable() %>%
+  flextable::set_caption(caption = "Table 3: Quality Control Acceptance Rate")
 ```
 
 ## 6.3 Recall
@@ -521,8 +491,6 @@ How to choose which of the many possible aggregations should be considered the h
 As with the ICBe project, we focus on areas of high agreement where multiple coders all found the same detail salient and mapped in the same way. We employ the ICBe "Agreed-Wide" version where the unit of analysis is the crisis-sentence-actor-event type and it includes only codings with (1) at least one expert coder's vote and (2) and a majority of either experts or novice coders votes. We further filter down to one event per sentence, choosing the one with the most coded information. This leaves 126,399 tokens receiving wide agreement across 10,291 crisis-sentences. We find about 72% recall overall which is a comparable rate of disagreement between ICBeLLM and ICBe as between expert human coders within ICBe and much higher than among novice coders.
 
 We disaggregate recall by part of the ontology in the table below. Recall ranges from 27% to 87% across the ontology. We make several broad observations. First, ICBeLLM is not yet optimized for emitting more than one token when asked and so it will mechanically have lower recall on questions that human coders tended to choose many tags, e.g. actors. All four of the top performing parts, domains, fatalities, territory, and units tend to have only one human tag. Second, it was easier to assign the initiator of a speech or do than it was to assign the target. Third, questions with options that were more self-evident performed better, such as speech behaviors like threats and offers, where questions which were more idiosyncratic to the ICBe coding rules performed poorly, e.g. thought behaviors like fear, policy, discovery, etc. We did not fine tune, provide few shot examples, even definitions in most cases and so this is unsurprising.
-
-
 
 ```{r, eval=T}
 
@@ -570,11 +538,11 @@ recall_df <- recall_df_raw %>%
              summarise(hit = hit %>% sum() )
 
 recall_df_raw_actors <- recall_df_raw %>% filter(variable %>% str_detect('actor')) %>% dplyr::select(Y, Y_hat) %>% distinct() %>% filter(!Y %in% Y_hat)
-recall_df_raw_actors %>% write_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/actors_to_recode.csv")
+recall_df_raw_actors %>% write_csv("../data_out/actors_to_recode.csv")
 
 
 recall_df_raw_thought_leaf <- recall_df_raw %>% filter(variable %>% str_detect('thought_leaf')) %>% dplyr::select(variable, Y, Y_hat) %>% distinct() %>% filter(!Y %in% Y_hat) %>% filter(!is.na(Y_hat))
-recall_df_raw_thought_leaf %>% write_csv("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/thought_leaf.csv")
+recall_df_raw_thought_leaf %>% write_csv("../data_out/thought_leaf.csv")
 
 #Fix Geoscope
 
@@ -600,14 +568,8 @@ recall_df %>%
     variable = stringr::str_replace_all(variable, "interact","") %>% trimws(),
     variable = stringr::str_to_title(variable)
   ) %>%
-  kable( caption = "Table 4: Recall by Variable", "html", align = c("l", "l", "l", "l", "l")) %>%
-  kable_styling(font_size = 10, full_width = FALSE) %>%
-# Add footnote
-kableExtra::footnote("") %>%   
-  kableExtra::as_image(width = 8)
-
-
-
+  flextable() %>%
+  flextable::set_caption(caption = "Table 4: Recall by Variable")
 ```
 
 # 6.4 Confusion
@@ -856,3 +818,4 @@ The ICBe project is an example of right place at the right time. It built an ont
 
 Given the pace of technological advancement, we expect event projects to continue this trend of shifting human labor towards ontology design. Undervalued definition and codebook authoring has been rebranded as ‘prompt engineering’ for a new generation of systems with a LLM in the loop rather than a hired human coder. No matter the justification, this is a positive development for empiricism in social science. Definitions can now we chosen at the time of the analysis and rerun overnight rather than pre-committed to years earlier in the cycle of grant raising, hiring, training, project management, and eventually publication. This reduction in the lag between theory generation and data collection from an unexpected source is a critical and welcome development in the maturation of social science on international events.
 
+# Works Cited
