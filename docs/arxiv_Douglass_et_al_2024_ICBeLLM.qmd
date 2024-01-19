@@ -14,22 +14,26 @@ pdf-engine: lualatex
 #latex-auto-mk: false
 format:
 #To compile as pdf
- pdf:
-   documentclass: article
-   papersize: letter
-   toc: false
-   number-sections: true
-   colorlinks: true
-   prefer-html: true
- html:
-   code-fold: true
-   html-math-method: katex
+ # pdf:
+ #   documentclass: article
+ #   papersize: letter
+ #   toc: false
+ #   number-sections: true
+ #   colorlinks: true
+ #   prefer-html: true
+ # html:
+ #   code-fold: true
+ #   html-math-method: katex
 #To compile the html bits to docx you need webshot2 installed
 #remotes::install_github('yihui/knitr')
   # docx:
   #   toc: false  # Table of contents for Word
   #   toc-depth: 2
     #prefer-html: false
+  arxiv-pdf:
+    keep-tex: true
+#    number_sections: false
+    authorcols: true
 editor: source
 execute:
   output: false
@@ -39,26 +43,34 @@ execute:
   cache: true
 embed-resources: true
 bibliography: ICBintro.bib
+abstract: The International Crises Behavior Events (ICBe) ontology provides high coverage over the thoughts, communications, and actions in the events that constitute international relations. The disadvantage of that level of detail is high human capital costs in manually applying it to new texts. Whether such an ontolgy is practical for international relations research given limited human and financial resources is a pressing concern. We introduce a working proof of concept showing that ICBe codings can be reliably extracted from new text using the current generation of open source large language models (LLM) running on consumer grade computer hardware. Our solution requires no finetuning and only limited prompt engineering. We detail our solution and present benchmarks against the original ICBe codings. We conclude by discussing the implications of very high quality event coding of any text being within reach of individual researchers and home enthusiasts.
+#Disabled several the caused errors
+header-includes:
+#  - \usepackage{xr} \externaldocument{appendix} #External references from the appendix
+#  - \usepackage{tinytex}
+  - \usepackage[utf8]{inputenc}
+  - \usepackage{pifont}
+  - \usepackage{newunicodechar}
+  - \usepackage{amssymb}
+  - \newunicodechar{✓}{\ding{51}}
+  - \newunicodechar{✗}{\ding{55}}
+  - \newunicodechar{̆}{\u{}}
+  - \newunicodechar{∈}{\in}
 ---
 
-
-# Abstract
-
-The International Crises Behavior Events (ICBe) ontology provides high coverage over the thoughts, communications, and actions in the events that constitute international relations. The disadvantage of that level of detail is high human capital costs in manually applying it to new texts. Whether such an ontolgy is practical for international relations research given limited human and financial resources is a pressing concern. We introduce a working proof of concept showing that ICBe codings can be reliably extracted from new text using the current generation of open source large language models (LLM) running on consumer grade computer hardware. Our solution requires no finetuning and only limited prompt engineering. We detail our solution and present benchmarks against the original ICBe codings. We conclude by discussing the implications of very high quality event coding of any text being within reach of individual researchers and home enthusiasts.
-
-# 1.0 Introduction
+# Introduction
 
 The International Crisis Behavior Events (ICBe) project provides a sentence-event level measurement of most thoughts, speech, and actions described by a corpus of historical narratives of an international crises [@douglassIntroducingICBeDataset2022]. The ontology represents the current state of the art in human extraction from events in dense historical narratives about international events. However, it is unwieldy and labor intensive necessitating a search for ways to automated its application to new corpora going forward. We present a proof of concept that ICBe can be automated, using current generation open source large language models, running just on consumer grade hardware. Further, ours strategy requires no fine-tuning and limited prompt-engineering, making it easy to employ by subject experts and importantly to quickly modify to cover different topics and questions.
 
 This brief proof of concept is organized into 8 sections as follows. Section 2.0 formalizes the machine learning task: event abstraction from dense historical narratives. Section 3.0 outlines the recent state of the art in event coding and large language models. Section 4.0 describes our final technical stack and how it optimizes across a number of constraints and goals. Section 5.0 describes in detail how we map the original ICbe ontology and human coding effort to the new ICBeLLM ontology and corresponding prompting strategy. Section 6.0 then turns to evaluation. Section 6.1 evaluates the precision of ICBeLLM codings with a full visualization of the entire Cuban Missile Crisis and corresponding event codings. Section 6.2 describes the results of the quality assurance step we use to maintain high precision of codings. Section 6.3 evaluates recall against the full ICBe human based codings. We conclude evaluation with Section 6.4 a deep dive into the kinds of errors observed between the automated and human codings. A final section 7.0 concludes and situates ICBeLLM in the greater context of the rapid improvement in natural language processing in the recent past and near future.
 
-# 2.0 Task Definition and Domain
+# Task Definition and Domain
 
 Our task is event coding from historical narratives. Event coding is an act of abstraction, both information extraction and summarization. History suffers from the coastline paradox, where there more finely you measure the more detail you will necessarily find. Event coding is therefore both a judgement about what happened and also a judgement about at what level of detail to summarize that information. Formally, a historical episode, H, is demarcated by a period of time $[T_{start}, T_{end}] ∈ T$, a set of Players $p ∈ P$, and a set of behaviors they undertook during that time $b ∈ B$. International Relations, $IR$, is the system of regularities that govern the strategic interactions that world actors make during a historical episode, given their available options, preferences, beliefs, and expectations of choices made by others. We observe neither H nor IR directly. Rather the Historical Record, $HR$, produces documents, $d ∈ D$, containing some relevant and true (as well as irrelevant and untrue) information about behaviors that were undertaken recorded in the form of unstructured natural language text. The task is to combine informative priors about IR with an unstructured corpus D to produce a series of structured discrete events, $e ∈ E$, that have high coverage, precision, and recall over what actually took place in history, $H$.
 
 The ICBe project chooses the sentence-event as the discrete unit of detail for a historical narrative about a large historical episode. Each sentence can provide new information about an event, defined as a actor-behavior pair. The ICBe project allowed for up to three distinct events to be introduced in a sentence. We evaluate 12 nodes of the ontology that can be used to describe an event. The ICBe ontology recognizes three overarching classes of events: Think, Say, and Do. Do events describe a physical action by one or more actors (Do Actor A, Do Actor B, Do Behavior). Say events describe a communication by one or more of the speaker actors to possibly one or more audience actors (Say Actor A,Say Actor B, Speech Behavior). Often a say event will be about one do event, e.g. making a threat to invade. Think events provide information about a cognition by one of the actors, e.g. experienced the start of a crisis period (Think Actor A, Thought Behavior). The details of each do event are further recorded and we evaluate 4 pieces of information collected (Units, Domains, Forces, Fatalities).
 
-# 3.0 State of the Art
+# State of the Art
 
 Currently, the pace of development in large language models is frenetic, with major commercial and open source releases every few months. Evaluations are barely keeping pace, and even less so evaluations within specific domains like political science. One such recent review evaluates both current commercial (Claude-2, GPT-4, PALM-2) and open source models (Llama 2, DistillRoberta) on the task of open ended survey responses [@mellonAIsKnowWhat2023]. It finds high agreement between human coders and several commercial LLMs but low performance for currently reigning open source option Llama 2. 
 
@@ -66,7 +78,7 @@ The most recent innovations in traditional internal event coding are based on la
 
 More broadly, there is a race to benchmark the capabilities [@changSurveyEvaluationLarge2023] and failure modes [@huangSurveyHallucinationLarge2023] of LLMS. There is work that seeks to benchmark LLMs applied within specific domains, e.g. Recommendations and reviews [@liuLLMRecBenchmarkingLarge2023], planning [@valmeekamLargeLanguageModels2023], factualness [@chenFELMBenchmarkingFactuality2023], external tool use [@liAPIBankComprehensiveBenchmark2023], complex/ill defined tasks [@santuTELeRGeneralTaxonomy2023], law [@guhaLegalBenchCollaborativelyBuilt2023], pre-engineering exam knowledge [@aroraHaveLLMsAdvanced2023]. Other work seeks to find the domain boundaries and understand issues like model hallucination when out of distribution [@guhaLegalBenchCollaborativelyBuilt2023]. Finally, others are concerned with the issue of contamination, and that no easily available benchmarking text can easily be proven not to be in the training data for an LLM prior to benchmarking [@sainzNLPEvaluationTrouble2023].
 
-# 4.0 Model Selection and Prompting Strategies
+# Model Selection and Prompting Strategies
 
 Given recent advances, we have strong reason to believe that our task should be within the reach of at least commercial LLMs. More uncertain is whether or not current generation open source LLMs running on consumer hardware can solve our task and thus bring international event coding within reach for social scientists everywhere and forever [@chenChatGPTOneyearAnniversary2023]. For the same reason, we are focused on a solution that does not require fine tuning and instead relies on prompts that can be changed and expanded quickly and by those with only area knowledge. We seek a proof of concept that we have crossed the threshold of democratized event coding.
 
@@ -76,7 +88,7 @@ In developing prompt strategies, we seek to optimize two sometimes conflicting p
 
 During the course of our prompt engineering we made the following qualitative observations. First, requesting very long detailed outputs is difficult even if they fit in the length of the context window. For example, a prompt that performs sentence splitting works for paragraphs better than a high performance NLP framework (spaCy) but fails at many paragraphs at a time. Second, longer inputs are fine, and in fact sometimes necessary if the context is required for name disambiguation for example, as long as the prompt includes measures to focus and remind the LLM of the task and most relevant parts. Third, we found that it was far more effective to move instructions from the 'question' side of the prompt to the 'answer' side, effectively pre-drafting the LLM's response for it. Instead of instructing the LLM to "Answer with a single number", it is better to begin drafting the response as "My answer takes the form of a single number. That number is..." It is more constraining for the LLM to finish a predrafted answer than it is to pick an answer that can either follow or ignore the question. Fourth, multiple choice is the most efficient prompting strategy, requiring emitting only one or a few tokens.
 
-# 5.0 Executing the ICBe Ontology with LLMs
+# Executing the ICBe Ontology with LLMs
 
 The defining characteristic of the ICBe ontology is that it seeks to capture as much detail as possible along with the temporal ordering of that detail so that a full timeline of events can be reconstructed from a single very dense historical narrative. The narrative is broken into paragraphs, into sentences, into events, and then if necessary into compound events such as a speech event threatening to commit a action-event in the future. Human coders were required for this complicated ontology because simple dictionary based NLP methods are unable to correctly disentangle and disambiguate that level of detail from dense text.^[Previously, most systems relied on simple keyword matching in news headlines.] They key question is whether LLMs can bridge this last mile of human required steps, and if so how.
 
@@ -107,11 +119,11 @@ Sys.setenv("OPENSSL_CONF"="/dev/null")
 car_hux
 ```
 
-# 6.0 Evaluation
+# Evaluation
 
 Performance evaluation for an information abstraction task poses many unique challenges because not only are we comparing the extraction of information, we are comparing the style/level of summary chosen. Two codings, and even two human coders, might disagree in at least 5 ways: (1) the content of the sentence implies different events, (2) the sentence implies more events for one than the other, (3) they agree on the event but disagree on the level of detail supported by the text, (4) they agree on the event but disagree on the level of summarization that is desirable (what information to throw away), (5) they agree on the event but choose two different substantively equivalent ways of phrasing it, e.g. a threat to do something unless a concessions is provided versus a promise not to do something if a concession is provided.
 
-## 6.1 Precision on a Qualitative Case Study - Cuban Missile Crisis (1962)
+## Precision on a Qualitative Case Study - Cuban Missile Crisis (1962)
 
 We therefore begin first qualitatively with an examination of ICBeLLM’s precision relative to the original text of a crisis narrative, the Cuban Missile Crisis. We ask to what degree the content of the source material is accurately and completely reflected in the event codings. We utilize a visualization that allows quick comparisons between the two. In the table below, the first column represents the original source text of the narrative, the second column represents the ICBeLLM’s splitting and rewriting of the sentence into individual events and compound events. Compound events are represented as an event description immediately followed by a second row leading with “↳” showing the action that the speech or thought refers to. The third column represents the ICBeLLM’s final event coding represented with an easy to skim iconography. Initiators are represented by their national flags, followed by a behavior of some kind, followed by the flags of targets of that behavior, and then for physical actions a number of icons reflect the details of that action. For example, the domain of conflict is represented by appropriate Mincreaft blocks (earth for ground, water for sea, etc.), an icon of a military unit for the types of forces employed (plastic army men for troops, a rocket for missiles, etc.), a skull and crossbones for casualties, and a soldier silhouette for a nonzero number of military troops involved.
 
@@ -309,11 +321,9 @@ tp_196 %>%
 ```
 
 ![Cuban Missile Crisis](Figure1_Cuban_Missile_Crisis3.png)
-
-## 6.2 Quality Control
+## Quality Control
 
 Our multiple choice prompting strategy is designed with speed in mind, requiring emitting only one or a few tokens. For accuracy we would have preferred a more elaborate prompting strategy like chain of thought, allowing the LLM to reason ‘out loud’ and correct earlier mistakes. As a compromise, we employ a second round of multiple choice prompting that asks only to evaluate the previous answer as correct or incorrect. The QA process accepts 87% (rejects 13%) of all answers which large variation indicating parts of the ontology are particularly difficult. Almost half of all answers from the prompt asking about do actions by unarmed actors that were uncooperative are rejected at this stage. Not only does the QA step serve as a last line of defense against incorrect answers, it provides a diagnostic for checking and improving prompts without peeking at the final evaluation data. Making that comparison to ground truth human labels is what we turn to next.
-
 
 ```{r, eval=T, cache=T}
 
@@ -483,7 +493,7 @@ ICBeLLM %>%
   flextable::set_caption(caption = "Table 3: Quality Control Acceptance Rate")
 ```
 
-## 6.3 Recall
+## Recall
 
 While the ICBeLLM codings appear to have face validity in the qualitative case study, we want to move toward a more quantitative comparison of performance across the full corpus. We therefore estimate the recall of ICBeLLM against the original ICBe human codings. We evaluate ICBeLLM against ICBe v1.1.^[Retrieved August 20, 2023,  https://github.com/CenterForPeaceAndSecurityStudies/ICBEdataset/).] The two do not have an exact one to one mapping because ICBeLLM is produced at a higher level of resolution, the crisis-sentence-event and ICBe was measured only at the crisis-sentence (with up to 3 different events produced per sentence but no information about which part of the sentence). Our strategy is to evaluate recall at the sentence-token unit of observation. We define recall as the probability that a sentence-token emitted by a human was also emmitted by the system, $Pr(Token_{LLM} | Token_{H})$. More concretely, we consider it a hit if ICBeLLM emitted the same fact about a sentence, e.g. the name of an actor, a behavior employed, a number of casualties etc, and we consider it a miss if ICBe emitted a fact about that sentence that was not emitted by ICBeLLM. We further normalize and clean both sets to reduce false misses do to unimportant differences like capitalization, abbreviation, etc.
 
@@ -573,7 +583,7 @@ recall_df %>%
   flextable::set_caption(caption = "Table 4: Recall by Variable")
 ```
 
-# 6.4 Confusion
+# Confusion
 
 For a relatively small subset of sentences, we can dig into the specific disagreements between ICBeLLM and the ICBe human consensus. We only have an unambigious 1 to 1 match between ICBe and ICBeLLM when both only assigned a single behavior token to a sentence. That sample is both smaller (3,228/10,573 or 30% of all eligible for recall) and unrepresentative because it implies simpler sentences that produced fewer events. Still we find it useful for understanding which parts of the ontology are performing the worst and if the confusion between labels substantively impacts our interpretation of the final codings.
 
@@ -809,7 +819,7 @@ combined_plot <- plot_grid(
 print(combined_plot)
 ```
 
-# 7.0 Conclusion
+# Conclusion
 
 We investigated whether the current generation of open source LLMs are able to take over previously human only international event coding and extraction tasks. We attempted to automate a very complicated and high quality ontology of international events which required human labeling to perform and could not be achieved via the last generation of dictionary based NLP methods. We evaluated the precision of the automated codings on a detailed qualitative case study and the recall over the full corpus of tens of thousands of events across nearly five hundred historical crises. We found that we have entered the age of at home event coding, where researchers and students will be able to mine text for advanced concepts and regularities nearly for free and forever with open source consumer hardware.
 

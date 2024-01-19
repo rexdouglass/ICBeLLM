@@ -4,9 +4,7 @@
 \PassOptionsToPackage{dvipsnames,svgnames,x11names}{xcolor}
 %
 \documentclass[
-  letterpaper,
-  DIV=11,
-  numbers=noendperiod]{scrartcl}
+]{article}
 
 \usepackage{amsmath,amssymb}
 \usepackage{iftex}
@@ -22,6 +20,8 @@
 \usepackage{lmodern}
 \ifPDFTeX\else  
     % xetex/luatex font selection
+  \setmainfont[]{Latin Modern Roman}
+  \setmathfont[]{Latin Modern Math}
 \fi
 % Use upquote if available, for straight quotes in verbatim environments
 \IfFileExists{upquote.sty}{\usepackage{upquote}}{}
@@ -41,7 +41,7 @@
 \makeatother
 \usepackage{xcolor}
 \setlength{\emergencystretch}{3em} % prevent overfull lines
-\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\setcounter{secnumdepth}{5}
 % Make \paragraph and \subparagraph free-standing
 \ifx\paragraph\undefined\else
   \let\oldparagraph\paragraph
@@ -77,49 +77,52 @@
 \makeatletter
 \def\fps@figure{htbp}
 \makeatother
+% definitions for citeproc citations
+\NewDocumentCommand\citeproctext{}{}
+\NewDocumentCommand\citeproc{mm}{%
+  \begingroup\def\citeproctext{#2}\cite{#1}\endgroup}
+\makeatletter
+ % allow citations to break across lines
+ \let\@cite@ofmt\@firstofone
+ % avoid brackets around text for \cite:
+ \def\@biblabel#1{}
+ \def\@cite#1#2{{#1\if@tempswa , #2\fi}}
+\makeatother
 \newlength{\cslhangindent}
 \setlength{\cslhangindent}{1.5em}
 \newlength{\csllabelwidth}
 \setlength{\csllabelwidth}{3em}
-\newlength{\cslentryspacingunit} % times entry-spacing
-\setlength{\cslentryspacingunit}{\parskip}
-\newenvironment{CSLReferences}[2] % #1 hanging-ident, #2 entry spacing
- {% don't indent paragraphs
-  \setlength{\parindent}{0pt}
+\newenvironment{CSLReferences}[2] % #1 hanging-indent, #2 entry-spacing
+ {\begin{list}{}{%
+  \setlength{\itemindent}{0pt}
+  \setlength{\leftmargin}{0pt}
+  \setlength{\parsep}{0pt}
   % turn on hanging indent if param 1 is 1
   \ifodd #1
-  \let\oldpar\par
-  \def\par{\hangindent=\cslhangindent\oldpar}
+   \setlength{\leftmargin}{\cslhangindent}
+   \setlength{\itemindent}{-1\cslhangindent}
   \fi
   % set entry spacing
-  \setlength{\parskip}{#2\cslentryspacingunit}
- }%
- {}
+  \setlength{\itemsep}{#2\baselineskip}}}
+ {\end{list}}
 \usepackage{calc}
-\newcommand{\CSLBlock}[1]{#1\hfill\break}
-\newcommand{\CSLLeftMargin}[1]{\parbox[t]{\csllabelwidth}{#1}}
-\newcommand{\CSLRightInline}[1]{\parbox[t]{\linewidth - \csllabelwidth}{#1}\break}
+\newcommand{\CSLBlock}[1]{\hfill\break\parbox[t]{\linewidth}{\strut\ignorespaces#1\strut}}
+\newcommand{\CSLLeftMargin}[1]{\parbox[t]{\csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLRightInline}[1]{\parbox[t]{\linewidth - \csllabelwidth}{\strut#1\strut}}
 \newcommand{\CSLIndent}[1]{\hspace{\cslhangindent}#1}
 
-\usepackage{booktabs}
-\usepackage{longtable}
-\usepackage{array}
-\usepackage{multirow}
-\usepackage{wrapfig}
-\usepackage{float}
-\usepackage{colortbl}
-\usepackage{pdflscape}
-\usepackage{tabu}
-\usepackage{threeparttable}
-\usepackage{threeparttablex}
-\usepackage[normalem]{ulem}
-\usepackage{makecell}
-\usepackage{xcolor}
-\KOMAoption{captions}{tableheading}
-\makeatletter
-\makeatother
-\makeatletter
-\makeatother
+\usepackage{arxiv}
+\usepackage{orcidlink}
+\usepackage{amsmath}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{pifont}
+\usepackage{newunicodechar}
+\usepackage{amssymb}
+\newunicodechar{✓}{\ding{51}}
+\newunicodechar{✗}{\ding{55}}
+\newunicodechar{̆}{\u{}}
+\newunicodechar{∈}{\in}
 \makeatletter
 \@ifpackageloaded{caption}{}{\usepackage{caption}}
 \AtBeginDocument{%
@@ -156,15 +159,16 @@
 \newcommand*\listoflistings{\listof{codelisting}{List of Listings}}
 \makeatother
 \makeatletter
-\@ifpackageloaded{caption}{}{\usepackage{caption}}
-\@ifpackageloaded{subcaption}{}{\usepackage{subcaption}}
 \makeatother
 \makeatletter
+\@ifpackageloaded{caption}{}{\usepackage{caption}}
+\@ifpackageloaded{subcaption}{}{\usepackage{subcaption}}
 \makeatother
 \ifLuaTeX
   \usepackage{selnolig}  % disable illegal ligatures
 \fi
-\IfFileExists{bookmark.sty}{\usepackage{bookmark}}{\usepackage{hyperref}}
+\usepackage{bookmark}
+
 \IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
 \urlstyle{same} % disable monospaced font for URLs
 \hypersetup{
@@ -176,17 +180,20 @@
   urlcolor={Blue},
   pdfcreator={LaTeX via pandoc}}
 
+\newcommand{\runninghead}{A Preprint }
 \title{ICBeLLM: High Quality International Events Data with Open Source
 Large Language Models on Consumer Hardware}
-\author{Rex W. Douglass \and Thomas Leo Scherer \and J. Andrés
-Gannon \and Erik Gartzke}
+\def\asep{\\\\\\ } % default: all authors on same column
+\def\asep{\And }
+\author{\textbf{Rex W. Douglass}\\\\University of California, San
+Diego\\\\\asep\textbf{Thomas Leo Scherer}\\\\University of California,
+San Diego\\\\\asep\textbf{J. Andrés Gannon}\\\\Vanderbilt
+University\\\\\asep\textbf{Erik Gartzke}\\\\University of California,
+San Diego\\\\}
 \date{}
-
 \begin{document}
 \maketitle
-\hypertarget{abstract}{%
-\section{Abstract}\label{abstract}}
-
+\begin{abstract}
 The International Crises Behavior Events (ICBe) ontology provides high
 coverage over the thoughts, communications, and actions in the events
 that constitute international relations. The disadvantage of that level
@@ -201,9 +208,9 @@ and only limited prompt engineering. We detail our solution and present
 benchmarks against the original ICBe codings. We conclude by discussing
 the implications of very high quality event coding of any text being
 within reach of individual researchers and home enthusiasts.
+\end{abstract}
 
-\hypertarget{introduction}{%
-\section{1.0 Introduction}\label{introduction}}
+\section{Introduction}\label{introduction}
 
 The International Crisis Behavior Events (ICBe) project provides a
 sentence-event level measurement of most thoughts, speech, and actions
@@ -238,9 +245,7 @@ errors observed between the automated and human codings. A final section
 improvement in natural language processing in the recent past and near
 future.
 
-\hypertarget{task-definition-and-domain}{%
-\section{2.0 Task Definition and
-Domain}\label{task-definition-and-domain}}
+\section{Task Definition and Domain}\label{task-definition-and-domain}
 
 Our task is event coding from historical narratives. Event coding is an
 act of abstraction, both information extraction and summarization.
@@ -281,8 +286,7 @@ start of a crisis period (Think Actor A, Thought Behavior). The details
 of each do event are further recorded and we evaluate 4 pieces of
 information collected (Units, Domains, Forces, Fatalities).
 
-\hypertarget{state-of-the-art}{%
-\section{3.0 State of the Art}\label{state-of-the-art}}
+\section{State of the Art}\label{state-of-the-art}
 
 Currently, the pace of development in large language models is frenetic,
 with major commercial and open source releases every few months.
@@ -320,9 +324,8 @@ and that no easily available benchmarking text can easily be proven not
 to be in the training data for an LLM prior to benchmarking (Sainz et
 al. 2023).
 
-\hypertarget{model-selection-and-prompting-strategies}{%
-\section{4.0 Model Selection and Prompting
-Strategies}\label{model-selection-and-prompting-strategies}}
+\section{Model Selection and Prompting
+Strategies}\label{model-selection-and-prompting-strategies}
 
 Given recent advances, we have strong reason to believe that our task
 should be within the reach of at least commercial LLMs. More uncertain
@@ -386,9 +389,8 @@ pick an answer that can either follow or ignore the question. Fourth,
 multiple choice is the most efficient prompting strategy, requiring
 emitting only one or a few tokens.
 
-\hypertarget{executing-the-icbe-ontology-with-llms}{%
-\section{5.0 Executing the ICBe Ontology with
-LLMs}\label{executing-the-icbe-ontology-with-llms}}
+\section{Executing the ICBe Ontology with
+LLMs}\label{executing-the-icbe-ontology-with-llms}
 
 The defining characteristic of the ICBe ontology is that it seeks to
 capture as much detail as possible along with the temporal ordering of
@@ -423,8 +425,7 @@ accordance with the original ontology. After some steps we perform a
 quality assurance check where we move from selecting an answer to
 reviewing whether an answer is correct.
 
-\hypertarget{evaluation}{%
-\section{6.0 Evaluation}\label{evaluation}}
+\section{Evaluation}\label{evaluation}
 
 Performance evaluation for an information abstraction task poses many
 unique challenges because not only are we comparing the extraction of
@@ -439,10 +440,8 @@ event but choose two different substantively equivalent ways of phrasing
 it, e.g.~a threat to do something unless a concessions is provided
 versus a promise not to do something if a concession is provided.
 
-\hypertarget{precision-on-a-qualitative-case-study---cuban-missile-crisis-1962}{%
-\subsection{6.1 Precision on a Qualitative Case Study - Cuban Missile
-Crisis
-(1962)}\label{precision-on-a-qualitative-case-study---cuban-missile-crisis-1962}}
+\subsection{Precision on a Qualitative Case Study - Cuban Missile Crisis
+(1962)}\label{precision-on-a-qualitative-case-study---cuban-missile-crisis-1962}
 
 We therefore begin first qualitatively with an examination of ICBeLLM's
 precision relative to the original text of a crisis narrative, the Cuban
@@ -490,7 +489,7 @@ pledge. Most of the actions and ancillary do details are coded correctly
 but the actor directions becomes confused, and the idea of a promise to
 not invade became lost.
 
-\begin{figure}
+\begin{figure}[H]
 
 {\centering \includegraphics{Figure1_Cuban_Missile_Crisis3.png}
 
@@ -498,10 +497,9 @@ not invade became lost.
 
 \caption{Cuban Missile Crisis}
 
-\end{figure}
+\end{figure}%
 
-\hypertarget{quality-control}{%
-\subsection{6.2 Quality Control}\label{quality-control}}
+\subsection{Quality Control}\label{quality-control}
 
 Our multiple choice prompting strategy is designed with speed in mind,
 requiring emitting only one or a few tokens. For accuracy we would have
@@ -518,8 +516,7 @@ answers, it provides a diagnostic for checking and improving prompts
 without peeking at the final evaluation data. Making that comparison to
 ground truth human labels is what we turn to next.
 
-\hypertarget{recall}{%
-\subsection{6.3 Recall}\label{recall}}
+\subsection{Recall}\label{recall}
 
 While the ICBeLLM codings appear to have face validity in the
 qualitative case study, we want to move toward a more quantitative
@@ -592,8 +589,7 @@ performed poorly, e.g.~thought behaviors like fear, policy, discovery,
 etc. We did not fine tune, provide few shot examples, even definitions
 in most cases and so this is unsurprising.
 
-\hypertarget{confusion}{%
-\section{6.4 Confusion}\label{confusion}}
+\section{Confusion}\label{confusion}
 
 For a relatively small subset of sentences, we can dig into the specific
 disagreements between ICBeLLM and the ICBe human consensus. We only have
@@ -614,7 +610,7 @@ three highly similar behaviors of an actor experiencing a fear, becoming
 convinced of a fact, or discovering a fact. These regularly appear in
 the crisis narratives as the why for a crisis beginning.
 
-\includegraphics{arxiv_Douglass_et_al_2024_ICBeLLM_files/figure-latex/unnamed-chunk-9-1.pdf}
+\includegraphics{arxiv_Douglass_et_al_2024_ICBeLLM_files/figure-pdf/unnamed-chunk-9-1.pdf}
 
 The next most complicated behavior of speech shows greater but
 understandable confusion between behaviors. The most common speech type
@@ -626,7 +622,7 @@ noted this problem in the original ICBe project that boundary between
 labels was not always well defined, and that coders developed unique
 styles exploiting synonymy of the ontology.
 
-\includegraphics{arxiv_Douglass_et_al_2024_ICBeLLM_files/figure-latex/unnamed-chunk-11-1.pdf}
+\includegraphics{arxiv_Douglass_et_al_2024_ICBeLLM_files/figure-pdf/unnamed-chunk-11-1.pdf}
 
 Finally we look at confusion of the do labels, paired down to only those
 that appear in ICBe 5 or more times as there are many possible do
@@ -639,10 +635,9 @@ the kinds of errors we see are what we would hope to see if our overall
 approach was correct but our ontology and definitions need to be
 clearer.
 
-\includegraphics{arxiv_Douglass_et_al_2024_ICBeLLM_files/figure-latex/unnamed-chunk-13-1.pdf}
+\includegraphics{arxiv_Douglass_et_al_2024_ICBeLLM_files/figure-pdf/unnamed-chunk-13-1.pdf}
 
-\hypertarget{conclusion}{%
-\section{7.0 Conclusion}\label{conclusion}}
+\section{Conclusion}\label{conclusion}
 
 We investigated whether the current generation of open source LLMs are
 able to take over previously human only international event coding and
@@ -696,36 +691,35 @@ reduction in the lag between theory generation and data collection from
 an unexpected source is a critical and welcome development in the
 maturation of social science on international events.
 
-\hypertarget{works-cited}{%
-\section*{Works Cited}\label{works-cited}}
+\section*{Works Cited}\label{works-cited}
 \addcontentsline{toc}{section}{Works Cited}
 
-\hypertarget{refs}{}
+\phantomsection\label{refs}
 \begin{CSLReferences}{1}{0}
-\leavevmode\vadjust pre{\hypertarget{ref-aroraHaveLLMsAdvanced2023}{}}%
+\bibitem[\citeproctext]{ref-aroraHaveLLMsAdvanced2023}
 Arora, Daman, Himanshu Gaurav Singh, and Mausam. 2023. {``Have {LLMs
 Advanced Enough}? {A Challenging Problem Solving Benchmark For Large
 Language Models}.''} {arXiv}.
 \url{https://doi.org/10.48550/arXiv.2305.15074}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-changSurveyEvaluationLarge2023}{}}%
+\bibitem[\citeproctext]{ref-changSurveyEvaluationLarge2023}
 Chang, Yupeng, Xu Wang, Jindong Wang, Yuan Wu, Linyi Yang, Kaijie Zhu,
 Hao Chen, et al. 2023. {``A {Survey} on {Evaluation} of {Large Language
 Models}.''} {arXiv}. \url{https://doi.org/10.48550/arXiv.2307.03109}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-chenChatGPTOneyearAnniversary2023}{}}%
+\bibitem[\citeproctext]{ref-chenChatGPTOneyearAnniversary2023}
 Chen, Hailin, Fangkai Jiao, Xingxuan Li, Chengwei Qin, Mathieu Ravaut,
 Ruochen Zhao, Caiming Xiong, and Shafiq Joty. 2023. {``{ChatGPT}'s
 {One-year Anniversary}: {Are Open-Source Large Language Models Catching}
 Up?''} {arXiv}. \url{https://doi.org/10.48550/arXiv.2311.16989}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-chenFELMBenchmarkingFactuality2023}{}}%
+\bibitem[\citeproctext]{ref-chenFELMBenchmarkingFactuality2023}
 Chen, Shiqi, Yiran Zhao, Jinghan Zhang, I.-Chun Chern, Siyang Gao,
 Pengfei Liu, and Junxian He. 2023. {``{FELM}: {Benchmarking Factuality
 Evaluation} of {Large Language Models}.''} {arXiv}.
 \url{https://doi.org/10.48550/arXiv.2310.00741}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-douglassIntroducingICBeDataset2022}{}}%
+\bibitem[\citeproctext]{ref-douglassIntroducingICBeDataset2022}
 Douglass, Rex W., Thomas Leo Scherer, J. Andrés Gannon, Erik Gartzke,
 Jon Lindsay, Shannon Carcelli, Jonathan Wilkenfeld, et al. 2022.
 {``Introducing the {ICBe Dataset}: {Very High Recall} and {Precision
@@ -733,20 +727,20 @@ Event Extraction} from {Narratives} about {International Crises}.''}
 \emph{arXiv:2202.07081 {[}Cs, Stat{]}}, February.
 \url{https://arxiv.org/abs/2202.07081}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-frantarGPTQAccuratePostTraining2023}{}}%
+\bibitem[\citeproctext]{ref-frantarGPTQAccuratePostTraining2023}
 Frantar, Elias, Saleh Ashkboos, Torsten Hoefler, and Dan Alistarh. 2023.
 {``{GPTQ}: {Accurate Post-Training Quantization} for {Generative
 Pre-trained Transformers}.''} {arXiv}.
 \url{https://doi.org/10.48550/arXiv.2210.17323}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-guhaLegalBenchCollaborativelyBuilt2023}{}}%
+\bibitem[\citeproctext]{ref-guhaLegalBenchCollaborativelyBuilt2023}
 Guha, Neel, Julian Nyarko, Daniel E. Ho, Christopher Ré, Adam Chilton,
 Aditya Narayana, Alex Chohlas-Wood, et al. 2023. {``{LegalBench}: {A
 Collaboratively Built Benchmark} for {Measuring Legal Reasoning} in
 {Large Language Models}.''} {arXiv}.
 \url{https://doi.org/10.48550/arXiv.2308.11462}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-guptaStudyLanguageModels2023}{}}%
+\bibitem[\citeproctext]{ref-guptaStudyLanguageModels2023}
 Gupta, Kartick, and Anupam Jamatia. 2023. {``Study of~{Language Models}
 for~{Fine-Grained Socio-Political Event Classification}.''} In
 \emph{Machine {Learning} and {Computational Intelligence Techniques} for
@@ -755,87 +749,87 @@ Tiwari, and Sanjay Misra, 487--500. Lecture {Notes} in {Electrical
 Engineering}. {Singapore}: {Springer Nature}.
 \url{https://doi.org/10.1007/978-981-99-0047-3_42}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-haltermanPLOVERPOLECATNew2023a}{}}%
+\bibitem[\citeproctext]{ref-haltermanPLOVERPOLECATNew2023a}
 Halterman, Andrew, Benjamin Bagozzi, Andreas Beger, Phil Schrodt, and
 Grace Scraborough. 2023. {``{PLOVER} and {POLECAT}: {A New Political
 Event Ontology} and {Dataset}.''} {SocArXiv}.
 \url{https://doi.org/10.31235/osf.io/rm5dw}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-haltermanCreatingCustomEvent2023}{}}%
+\bibitem[\citeproctext]{ref-haltermanCreatingCustomEvent2023}
 Halterman, Andrew, Philip A. Schrodt, Andreas Beger, Benjamin E.
 Bagozzi, and Grace I. Scarborough. 2023. {``Creating {Custom Event Data
 Without Dictionaries}: {A Bag-of-Tricks}.''} {arXiv}.
 \url{https://arxiv.org/abs/2304.01331}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-huangSurveyHallucinationLarge2023}{}}%
+\bibitem[\citeproctext]{ref-huangSurveyHallucinationLarge2023}
 Huang, Lei, Weijiang Yu, Weitao Ma, Weihong Zhong, Zhangyin Feng,
 Haotian Wang, Qianglong Chen, et al. 2023. {``A {Survey} on
 {Hallucination} in {Large Language Models}: {Principles}, {Taxonomy},
 {Challenges}, and {Open Questions}.''} {arXiv}.
 \url{https://doi.org/10.48550/arXiv.2311.05232}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-kentCASE2021Task2021}{}}%
+\bibitem[\citeproctext]{ref-kentCASE2021Task2021}
 Kent, Samantha, and Theresa Krumbiegel. 2021. {``{CASE} 2021 Task 2
 Socio-Political Fine-Grained Event Classification Using Fine-Tuned
 {RoBERTa} Document Embeddings.''} In \emph{Proceedings of the 4th
 {Workshop} on {Challenges} and {Applications} of {Automated Extraction}
 of {Socio-political Events} from {Text} ({CASE} 2021)}, 208--17.
 
-\leavevmode\vadjust pre{\hypertarget{ref-kojimaLargeLanguageModels2022}{}}%
+\bibitem[\citeproctext]{ref-kojimaLargeLanguageModels2022}
 Kojima, Takeshi, Shixiang (Shane) Gu, Machel Reid, Yutaka Matsuo, and
 Yusuke Iwasawa. 2022. {``Large {Language Models} Are {Zero-Shot
 Reasoners}.''} \emph{Advances in Neural Information Processing Systems}
 35 (December): 22199--213.
 
-\leavevmode\vadjust pre{\hypertarget{ref-leePlatypusQuickCheap2023}{}}%
+\bibitem[\citeproctext]{ref-leePlatypusQuickCheap2023}
 Lee, Ariel N., Cole J. Hunter, and Nataniel Ruiz. 2023. {``Platypus:
 {Quick}, {Cheap}, and {Powerful Refinement} of {LLMs}.''} {arXiv}.
 \url{https://doi.org/10.48550/arXiv.2308.07317}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-liAPIBankComprehensiveBenchmark2023}{}}%
+\bibitem[\citeproctext]{ref-liAPIBankComprehensiveBenchmark2023}
 Li, Minghao, Yingxiu Zhao, Bowen Yu, Feifan Song, Hangyu Li, Haiyang Yu,
 Zhoujun Li, Fei Huang, and Yongbin Li. 2023. {``{API-Bank}: {A
 Comprehensive Benchmark} for {Tool-Augmented LLMs}.''} {arXiv}.
 \url{https://doi.org/10.48550/arXiv.2304.08244}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-liuLLMRecBenchmarkingLarge2023}{}}%
+\bibitem[\citeproctext]{ref-liuLLMRecBenchmarkingLarge2023}
 Liu, Junling, Chao Liu, Peilin Zhou, Qichen Ye, Dading Chong, Kang Zhou,
 Yueqi Xie, et al. 2023. {``{LLMRec}: {Benchmarking Large Language
 Models} on {Recommendation Task}.''} {arXiv}.
 \url{https://doi.org/10.48550/arXiv.2308.12241}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-mellonAIsKnowWhat2023}{}}%
+\bibitem[\citeproctext]{ref-mellonAIsKnowWhat2023}
 Mellon, Jonathan, Jack Bailey, Ralph Scott, James Breckwoldt, Marta
 Miori, and Phillip Schmedeman. 2023. {``Do {AIs Know What} the {Most
 Important Issue} Is? {Using Language Models} to {Code Open-Text Social
 Survey Responses At Scale}.''} \{\{SSRN Scholarly Paper\}\}. {Rochester,
 NY}. \url{https://doi.org/10.2139/ssrn.4310154}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-roumeliotisLlamaEarlyAdopters2023}{}}%
+\bibitem[\citeproctext]{ref-roumeliotisLlamaEarlyAdopters2023}
 Roumeliotis, Konstantinos I., Nikolaos D. Tselikas, and Dimitrios K.
 Nasiopoulos. 2023. {``Llama 2: {Early Adopters}' {Utilization} of
 {Meta}'s {New Open-Source Pretrained Model}.''} {Preprints}.
 \url{https://doi.org/10.20944/preprints202307.2142.v2}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-sainzNLPEvaluationTrouble2023}{}}%
+\bibitem[\citeproctext]{ref-sainzNLPEvaluationTrouble2023}
 Sainz, Oscar, Jon Ander Campos, Iker García-Ferrero, Julen Etxaniz, Oier
 Lopez de Lacalle, and Eneko Agirre. 2023. {``{NLP Evaluation} in
 Trouble: {On} the {Need} to {Measure LLM Data Contamination} for Each
 {Benchmark}.''} {arXiv}.
 \url{https://doi.org/10.48550/arXiv.2310.18018}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-santuTELeRGeneralTaxonomy2023}{}}%
+\bibitem[\citeproctext]{ref-santuTELeRGeneralTaxonomy2023}
 Santu, Shubhra Kanti Karmaker, and Dongji Feng. 2023. {``{TELeR}: {A
 General Taxonomy} of {LLM Prompts} for {Benchmarking Complex Tasks}.''}
 {arXiv}. \url{https://doi.org/10.48550/arXiv.2305.11430}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-valmeekamLargeLanguageModels2023}{}}%
+\bibitem[\citeproctext]{ref-valmeekamLargeLanguageModels2023}
 Valmeekam, Karthik, Alberto Olmo, Sarath Sreedharan, and Subbarao
 Kambhampati. 2023. {``Large {Language Models Still Can}'t {Plan} ({A
 Benchmark} for {LLMs} on {Planning} and {Reasoning} about {Change}).''}
 {arXiv}. \url{https://doi.org/10.48550/arXiv.2206.10498}.
 
-\leavevmode\vadjust pre{\hypertarget{ref-zhangBenchmarkingLargeLanguage2023}{}}%
+\bibitem[\citeproctext]{ref-zhangBenchmarkingLargeLanguage2023}
 Zhang, Tianyi, Faisal Ladhak, Esin Durmus, Percy Liang, Kathleen
 McKeown, and Tatsunori B. Hashimoto. 2023. {``Benchmarking {Large
 Language Models} for {News Summarization}.''} {arXiv}.
