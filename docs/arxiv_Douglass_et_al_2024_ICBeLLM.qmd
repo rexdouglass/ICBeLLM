@@ -1,0 +1,822 @@
+---
+title: "ICBeLLM: High Quality International Events Data with Open Source Large Language Models on Consumer Hardware"
+authors:
+  - name: Rex W. Douglass
+    affiliation: University of California, San Diego
+  - name: Thomas Leo Scherer
+    affiliation: University of California, San Diego
+  - name: J. Andrés Gannon
+    affiliation: Vanderbilt University
+  - name: Erik Gartzke
+    affiliation: University of California, San Diego
+highlight-style: pygments
+pdf-engine: lualatex
+#latex-auto-mk: false
+format:
+#To compile as pdf
+ pdf:
+   documentclass: article
+   papersize: letter
+   toc: false
+   number-sections: true
+   colorlinks: true
+   prefer-html: true
+ html:
+   code-fold: true
+   html-math-method: katex
+#To compile the html bits to docx you need webshot2 installed
+#remotes::install_github('yihui/knitr')
+  # docx:
+  #   toc: false  # Table of contents for Word
+  #   toc-depth: 2
+    #prefer-html: false
+editor: source
+execute:
+  output: false
+  error: false
+  echo: false
+  warnings: false
+  cache: true
+embed-resources: true
+bibliography: ICBintro.bib
+---
+
+
+# Abstract
+
+The International Crises Behavior Events (ICBe) ontology provides high coverage over the thoughts, communications, and actions in the events that constitute international relations. The disadvantage of that level of detail is high human capital costs in manually applying it to new texts. Whether such an ontolgy is practical for international relations research given limited human and financial resources is a pressing concern. We introduce a working proof of concept showing that ICBe codings can be reliably extracted from new text using the current generation of open source large language models (LLM) running on consumer grade computer hardware. Our solution requires no finetuning and only limited prompt engineering. We detail our solution and present benchmarks against the original ICBe codings. We conclude by discussing the implications of very high quality event coding of any text being within reach of individual researchers and home enthusiasts.
+
+# 1.0 Introduction
+
+The International Crisis Behavior Events (ICBe) project provides a sentence-event level measurement of most thoughts, speech, and actions described by a corpus of historical narratives of an international crises [@douglassIntroducingICBeDataset2022]. The ontology represents the current state of the art in human extraction from events in dense historical narratives about international events. However, it is unwieldy and labor intensive necessitating a search for ways to automated its application to new corpora going forward. We present a proof of concept that ICBe can be automated, using current generation open source large language models, running just on consumer grade hardware. Further, ours strategy requires no fine-tuning and limited prompt-engineering, making it easy to employ by subject experts and importantly to quickly modify to cover different topics and questions.
+
+This brief proof of concept is organized into 8 sections as follows. Section 2.0 formalizes the machine learning task: event abstraction from dense historical narratives. Section 3.0 outlines the recent state of the art in event coding and large language models. Section 4.0 describes our final technical stack and how it optimizes across a number of constraints and goals. Section 5.0 describes in detail how we map the original ICbe ontology and human coding effort to the new ICBeLLM ontology and corresponding prompting strategy. Section 6.0 then turns to evaluation. Section 6.1 evaluates the precision of ICBeLLM codings with a full visualization of the entire Cuban Missile Crisis and corresponding event codings. Section 6.2 describes the results of the quality assurance step we use to maintain high precision of codings. Section 6.3 evaluates recall against the full ICBe human based codings. We conclude evaluation with Section 6.4 a deep dive into the kinds of errors observed between the automated and human codings. A final section 7.0 concludes and situates ICBeLLM in the greater context of the rapid improvement in natural language processing in the recent past and near future.
+
+# 2.0 Task Definition and Domain
+
+Our task is event coding from historical narratives. Event coding is an act of abstraction, both information extraction and summarization. History suffers from the coastline paradox, where there more finely you measure the more detail you will necessarily find. Event coding is therefore both a judgement about what happened and also a judgement about at what level of detail to summarize that information. Formally, a historical episode, H, is demarcated by a period of time $[T_{start}, T_{end}] ∈ T$, a set of Players $p ∈ P$, and a set of behaviors they undertook during that time $b ∈ B$. International Relations, $IR$, is the system of regularities that govern the strategic interactions that world actors make during a historical episode, given their available options, preferences, beliefs, and expectations of choices made by others. We observe neither H nor IR directly. Rather the Historical Record, $HR$, produces documents, $d ∈ D$, containing some relevant and true (as well as irrelevant and untrue) information about behaviors that were undertaken recorded in the form of unstructured natural language text. The task is to combine informative priors about IR with an unstructured corpus D to produce a series of structured discrete events, $e ∈ E$, that have high coverage, precision, and recall over what actually took place in history, $H$.
+
+The ICBe project chooses the sentence-event as the discrete unit of detail for a historical narrative about a large historical episode. Each sentence can provide new information about an event, defined as a actor-behavior pair. The ICBe project allowed for up to three distinct events to be introduced in a sentence. We evaluate 12 nodes of the ontology that can be used to describe an event. The ICBe ontology recognizes three overarching classes of events: Think, Say, and Do. Do events describe a physical action by one or more actors (Do Actor A, Do Actor B, Do Behavior). Say events describe a communication by one or more of the speaker actors to possibly one or more audience actors (Say Actor A,Say Actor B, Speech Behavior). Often a say event will be about one do event, e.g. making a threat to invade. Think events provide information about a cognition by one of the actors, e.g. experienced the start of a crisis period (Think Actor A, Thought Behavior). The details of each do event are further recorded and we evaluate 4 pieces of information collected (Units, Domains, Forces, Fatalities).
+
+# 3.0 State of the Art
+
+Currently, the pace of development in large language models is frenetic, with major commercial and open source releases every few months. Evaluations are barely keeping pace, and even less so evaluations within specific domains like political science. One such recent review evaluates both current commercial (Claude-2, GPT-4, PALM-2) and open source models (Llama 2, DistillRoberta) on the task of open ended survey responses [@mellonAIsKnowWhat2023]. It finds high agreement between human coders and several commercial LLMs but low performance for currently reigning open source option Llama 2. 
+
+The most recent innovations in traditional internal event coding are based on last generation LMs (BERT, Roberta, etc.). One is the POLECAT dataset which is the successor to Integrated Conflict Early Warning System (ICEWS) [@haltermanCreatingCustomEvent2023; @haltermanPLOVERPOLECATNew2023a]. Another is an application of a subset of the Armed Conflict Location & Event Data Project (ACLED) ontology to articles [@guptaStudyLanguageModels2023]. Likewise, within the field of natural language processing, there is a tradition of news events based benchmarks more broadly such as CASE 2021 event classifications [@kentCASE2021Task2021]. Perhaps most similar to event abstraction is news summarization [@zhangBenchmarkingLargeLanguage2023]
+
+More broadly, there is a race to benchmark the capabilities [@changSurveyEvaluationLarge2023] and failure modes [@huangSurveyHallucinationLarge2023] of LLMS. There is work that seeks to benchmark LLMs applied within specific domains, e.g. Recommendations and reviews [@liuLLMRecBenchmarkingLarge2023], planning [@valmeekamLargeLanguageModels2023], factualness [@chenFELMBenchmarkingFactuality2023], external tool use [@liAPIBankComprehensiveBenchmark2023], complex/ill defined tasks [@santuTELeRGeneralTaxonomy2023], law [@guhaLegalBenchCollaborativelyBuilt2023], pre-engineering exam knowledge [@aroraHaveLLMsAdvanced2023]. Other work seeks to find the domain boundaries and understand issues like model hallucination when out of distribution [@guhaLegalBenchCollaborativelyBuilt2023]. Finally, others are concerned with the issue of contamination, and that no easily available benchmarking text can easily be proven not to be in the training data for an LLM prior to benchmarking [@sainzNLPEvaluationTrouble2023].
+
+# 4.0 Model Selection and Prompting Strategies
+
+Given recent advances, we have strong reason to believe that our task should be within the reach of at least commercial LLMs. More uncertain is whether or not current generation open source LLMs running on consumer hardware can solve our task and thus bring international event coding within reach for social scientists everywhere and forever [@chenChatGPTOneyearAnniversary2023]. For the same reason, we are focused on a solution that does not require fine tuning and instead relies on prompts that can be changed and expanded quickly and by those with only area knowledge. We seek a proof of concept that we have crossed the threshold of democratized event coding.
+
+The details of our solution are as follows. Our base model is the 70b parameter variant of Meta's open source Llama 2 model.^[See @roumeliotisLlamaEarlyAdopters2023 for a survey of use cases across early adopters of this model.] We employ an instruction fine tune of it called Platypus2-70B-instruct which is better suited to solving specific tasks than the base model which is designed primarily for interactive chat [@leePlatypusQuickCheap2023]. To fit within our compute/memory budget of two high end commercial graphics cards (e.g. NVIDIA 3090/4090s), we use a 4 bit precision version quantitized by AutoGPTQ [@frantarGPTQAccuratePostTraining2023]. We recognize for some researchers, particularly students, this may still be at the high end of a compute budget but is still superior to commercial API prices (e.g. GPT-4's API) where this budget would buy one time processing of only about 100 pages of text.^[Currently retailing for 3-4 thousand dollars new and 1-2 thousand dollars used. At current GPT-4 API pricing that would translate into a budget of of about 66,666 tokens or roughly 100 pages of text.] We also expect this disparity to only shrink as smaller models improve.
+
+In developing prompt strategies, we seek to optimize two sometimes conflicting priorities of performance and efficiency. We need prompt strategies that can solve the information extraction task but at a wall clock time that's feasible for a researcher with consumer hardware. There are fundamentally only two inputs we can optimize. The first is we can manipulate the content and length of the input prompt. Shorter prompts are faster to process but contain possibly less information for solving the task. The second is we can manipulate the content and length of the output of the model. Again shorter outputs are faster to process, but LLMs have no scratch memory to reason with apart from the sequence of tokens and so performance can sometimes be increased by letting the model 'reason out loud' [@kojimaLargeLanguageModels2022].
+
+During the course of our prompt engineering we made the following qualitative observations. First, requesting very long detailed outputs is difficult even if they fit in the length of the context window. For example, a prompt that performs sentence splitting works for paragraphs better than a high performance NLP framework (spaCy) but fails at many paragraphs at a time. Second, longer inputs are fine, and in fact sometimes necessary if the context is required for name disambiguation for example, as long as the prompt includes measures to focus and remind the LLM of the task and most relevant parts. Third, we found that it was far more effective to move instructions from the 'question' side of the prompt to the 'answer' side, effectively pre-drafting the LLM's response for it. Instead of instructing the LLM to "Answer with a single number", it is better to begin drafting the response as "My answer takes the form of a single number. That number is..." It is more constraining for the LLM to finish a predrafted answer than it is to pick an answer that can either follow or ignore the question. Fourth, multiple choice is the most efficient prompting strategy, requiring emitting only one or a few tokens.
+
+# 5.0 Executing the ICBe Ontology with LLMs
+
+The defining characteristic of the ICBe ontology is that it seeks to capture as much detail as possible along with the temporal ordering of that detail so that a full timeline of events can be reconstructed from a single very dense historical narrative. The narrative is broken into paragraphs, into sentences, into events, and then if necessary into compound events such as a speech event threatening to commit a action-event in the future. Human coders were required for this complicated ontology because simple dictionary based NLP methods are unable to correctly disentangle and disambiguate that level of detail from dense text.^[Previously, most systems relied on simple keyword matching in news headlines.] They key question is whether LLMs can bridge this last mile of human required steps, and if so how.
+
+We map each of the substantive ICBe coding tasks to an LLM prompting strategy (Table 1). The main innovation is to use the LLM's ability to generate unstructured text to break the narrative into finer and finer events and then code the details of those events as a final step. First, the narrative is broken into paragraphs with simple regex and those paragraphs are processed by the LLM into sentences. Second, if a sentence describes more than one event, the LLM disaggregates and composes separate complete sentences around each distinct event. This step greatly improves on the original ICBe coding effort, where multiple events had to be tied to entire sentences strings because narrowing it down to specific text spans was too labor intensive. Third, each event is checked for a thought or speech behavior which might indicate a compound event. If one is found, the LLM further rewrites the event into a primary and secondary event, linking the two, but allowing each to be coded normally in the full workflow. Finally, a series of multiple choice and open ended responses extracts information about each event in accordance with the original ontology. After some steps we perform a quality assurance check where we move from selecting an answer to reviewing whether an answer is correct.
+
+```{r, eval=T,output=F}
+library(magrittr)
+library(flextable)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(huxtable)
+
+sheet_id <- "1h1ooSdlnep4HTwzAyKK05DX7h0cCVOYb4rQzqg1qGdo" # Replace this with your actual sheet ID
+csv_link <- paste0("https://docs.google.com/spreadsheets/d/", sheet_id, "/gviz/tq?tqx=out:csv&sheet=", "paper_table1")
+table1 <- read_csv(csv_link)
+
+table1 <- table1 %>% 
+  mutate_all(str_replace_all,"\r\n", " ") %>%
+  mutate_all(replace_na, '') 
+
+car_hux <- table1 %>%
+  as_huxtable( add_colnames = TRUE) %>%
+  set_font_size( 9) %>% 
+  as_flextable()
+
+Sys.setenv("OPENSSL_CONF"="/dev/null")
+car_hux
+```
+
+# 6.0 Evaluation
+
+Performance evaluation for an information abstraction task poses many unique challenges because not only are we comparing the extraction of information, we are comparing the style/level of summary chosen. Two codings, and even two human coders, might disagree in at least 5 ways: (1) the content of the sentence implies different events, (2) the sentence implies more events for one than the other, (3) they agree on the event but disagree on the level of detail supported by the text, (4) they agree on the event but disagree on the level of summarization that is desirable (what information to throw away), (5) they agree on the event but choose two different substantively equivalent ways of phrasing it, e.g. a threat to do something unless a concessions is provided versus a promise not to do something if a concession is provided.
+
+## 6.1 Precision on a Qualitative Case Study - Cuban Missile Crisis (1962)
+
+We therefore begin first qualitatively with an examination of ICBeLLM’s precision relative to the original text of a crisis narrative, the Cuban Missile Crisis. We ask to what degree the content of the source material is accurately and completely reflected in the event codings. We utilize a visualization that allows quick comparisons between the two. In the table below, the first column represents the original source text of the narrative, the second column represents the ICBeLLM’s splitting and rewriting of the sentence into individual events and compound events. Compound events are represented as an event description immediately followed by a second row leading with “↳” showing the action that the speech or thought refers to. The third column represents the ICBeLLM’s final event coding represented with an easy to skim iconography. Initiators are represented by their national flags, followed by a behavior of some kind, followed by the flags of targets of that behavior, and then for physical actions a number of icons reflect the details of that action. For example, the domain of conflict is represented by appropriate Mincreaft blocks (earth for ground, water for sea, etc.), an icon of a military unit for the types of forces employed (plastic army men for troops, a rocket for missiles, etc.), a skull and crossbones for casualties, and a soldier silhouette for a nonzero number of military troops involved.
+
+The Cuban Missile Crisis took place between the United States, Cuba, and the Soviet Union, primarily in October of 1962, over the United States’s recent attempted invasion of Cuba and the Soviet Union’s deployment of nuclear weapons to the island. We provide ICBeLLM’s full coding of the crisis below. Overall we find ICBeLLM’s precision and coverage of the Cuban Missile Crisis to be high quality. It recovers a number of tricky events that stumped earlier NLP systems and motivated the creation of ICBe’s complicated ontology. Consider for example some of the following key crisis points. The U.S. discovery of Soviet troops in Cuba and its response of full mobilization (sentence 8) is correctly disaggregated by ICBeLLM into a compound event, U.S. discovering a fact, and that fact is the Soviet Union deployed troops to Cuba, and a second physical action of the U.S. mobilizing it’s army targeting Cuba. It further correctly coded each of the actors, actions, and additional details of domain and forces types. This sentence is an example where an author’s desire to be efficient and entertaining with words for a human audience creates significant obstacles for simpler dictionary based NLP methods. In contrast, a failure is found in the very tricky detail of the major proposed trade (sentence 22) where the Soviet Union offered to remove the missiles in exchange for an end to the quarantine and no invasion pledge. Most of the actions and ancillary do details are coded correctly but the actor directions becomes confused, and the idea of a promise to not invade became lost.
+
+```{r, eval=T}
+
+icb_events_long <- readRDS(file="../data_in/ICBe_V1.1_long_clean.Rds")
+
+#Borrow the qcode mappings from the icbe long version
+value_normalized_to_value_qcode <- icb_events_long %>%
+  dplyr::select(value_normalized, value_qcode) %>%
+  distinct() %>%
+  filter(!is.na(value_qcode)) %>%
+  mutate(value_qcode_clean = paste0("![](../data_in/flags_small/",value_qcode,".png)")) %>%
+  filter(!value_qcode %>% str_detect(";")) %>%
+  mutate(value_qcode_clean=ifelse(value_normalized=='none','',value_qcode_clean)) #you can't use NA as a replacement
+
+#We're going to put data out into a zip file and ignore it
+out_directory <- "../data_out/icbe_all_codings/"
+
+in_files <- list.files(path = out_directory, full.names = T)
+in_files %>%
+  lapply(read_csv) %>%
+  lapply(function(df) mutate_all(df, as.character)) %>%
+  bind_rows() %>%
+  arrange(crisno, sentence_number, event_number, event_number_subevent) %>%
+  write_csv("../data_out/icbe_all_codings.csv", na = "")
+
+ICBeLLM_all_codings <- read_csv("../data_out/icbe_all_codings.csv")
+```
+
+
+```{r , eval=T, results=F}
+
+table196 <- ICBeLLM_all_codings %>% 
+            arrange(crisno, sentence_number,event_number, event_number_subevent) %>%
+            filter(crisno==196) %>%
+            #dplyr::select(sentence_number, sentence, event, event_number_subevent,subevent_thoughtspeech_leaf) %>%
+            #mutate(subevent_thoughtspeech_leaf=ifelse(event_number_subevent==1, NA, subevent_thoughtspeech_leaf))  %>%
+            #mutate(thought_leaf=ifelse(event_number_subevent==1, NA, thought_leaf))  %>%
+            #mutate(speech_leaf=ifelse(event_number_subevent==1, NA, speech_leaf))  %>%
+            #mutate(sentence_number=ifelse(sentence_number!=lag(sentence_number) | sentence_number==1 , sentence_number, NA)) %>%
+            #mutate(sentence=ifelse(sentence!=lag(sentence) | sentence_number==1, sentence, NA))  %>%
+            mutate(placeholder=ifelse(event_number_subevent>1,"↳","")) %>%
+            unite("sentence_clean",  sentence_number, sentence, na.rm = TRUE, remove = FALSE, sep = ") ") %>%
+            unite("event_clean",  placeholder, event, na.rm = TRUE, remove = FALSE, sep = "") #%>%
+            #dplyr::select(sentence_clean, sentence, event_clean,think_actor_a,thought_leaf) 
+
+#View(table196)
+table196 %>% 
+  filter(!is.na(thought_leaf) & event_number_subevent==1) %>% 
+  dplyr::select(sentence_clean, event_clean, think_actor_a, thought_leaf, quality_control_thought)
+
+thoughts <- table196 %>% 
+            filter(!is.na(thought_leaf) & event_number_subevent==1) %>% #we're going to mechanically require it to be subevent 1
+            filter(quality_control_thought=="correct") %>%
+            #we're also going to screen anything that was rejected by QA
+            unite('icbellm', think_actor_a, thought_leaf, sep = "->", remove = F, na.rm = T ) %>%
+            dplyr::select(crisno, sentence_number,event_number, event_number_subevent,sentence_clean, sentence, event_clean,icbellm) %>%
+            mutate(table_ordering=1)
+
+table196 %>% 
+  filter(!is.na(speech_leaf) & event_number_subevent==1) %>% 
+  dplyr::select(sentence_clean, event_clean,  say_actor_a, speech_leaf, say_actor_b, quality_control_say)
+
+speech <- table196 %>% 
+  filter(!is.na(speech_leaf)  & event_number_subevent==1 ) %>% #we're going to mechanically require it to be subevent 1
+            #filter(quality_control_say=="correct") %>% #the speech filter isn't doing great
+  unite('icbellm', say_actor_a, speech_leaf, say_actor_b, sep = "->", remove = F, na.rm = T ) %>%
+  dplyr::select(crisno, sentence_number,event_number, event_number_subevent,sentence_clean, sentence, event_clean,icbellm) %>%
+  mutate(table_ordering=2)
+
+table196 %>% 
+  #filter( !is.na(do_leaf))%>% 
+  dplyr::select(sentence_clean, event_clean, 
+               do_actor_a, do_actor_b, 
+               do_military_escalatory_leaf, quality_control_do_1,
+               do_military_deescalatory_leaf, quality_control_do_2,
+               do_unarmed_uncooperative_leaf, quality_control_do_3,
+               do_unarmed_cooperative_leaf , quality_control_do_4
+               )
+
+do <- table196 %>%
+  filter( !is.na(do_leaf)) %>%
+  mutate(do_leaf='') %>%
+  mutate(do_leaf=ifelse(quality_control_do_1 %in% "correct", paste0(do_leaf,do_military_escalatory_leaf,sep=";"),do_leaf )) %>%
+  mutate(do_leaf=ifelse(quality_control_do_2 %in% "correct", paste0(do_leaf,do_military_deescalatory_leaf,sep=";"),do_leaf)) %>%
+  mutate(do_leaf=ifelse(quality_control_do_3 %in% "correct", paste0(do_leaf,do_unarmed_uncooperative_leaf,sep=";"),do_leaf)) %>%
+  mutate(do_leaf=ifelse(quality_control_do_4 %in% "correct", paste0(do_leaf,do_unarmed_cooperative_leaf,sep=";"),do_leaf)) %>%
+  unite('icbellm', do_actor_a, do_leaf, do_actor_b, sep = "->" , remove = F, na.rm = T ) %>%
+  mutate(interact_fatalities=ifelse(interact_fatalities!="none","![](../data_in/flags_small/Q1056901.png)",interact_fatalities)) %>%
+  mutate(interact_forces=ifelse(interact_forces!="none","![](../data_in/flags_small/Q176799.png)",interact_fatalities)) %>%
+      #interact_geoscope,interact_location,interact_territory
+  unite('icbellm', icbellm,interact_domains,interact_units,interact_fatalities,interact_forces, sep = "", remove = F, na.rm = T ) %>%
+  dplyr::select(crisno, sentence_number,event_number, event_number_subevent, sentence_clean, sentence, event_clean,icbellm) %>%
+  mutate(table_ordering=3) 
+
+combined <- bind_rows(table196 %>%
+                        dplyr::select(crisno, sentence_number,event_number, event_number_subevent, sentence_clean, sentence, event_clean) %>%
+                        distinct(),
+      thoughts %>% dplyr::select(crisno, sentence_number,event_number, event_number_subevent,  sentence_clean, sentence, event_clean,icbellm,table_ordering) %>% distinct(),
+      speech %>% dplyr::select(crisno, sentence_number,event_number, event_number_subevent,  sentence_clean, sentence, event_clean,icbellm,table_ordering) %>% distinct(),
+      do  %>% dplyr::select(crisno, sentence_number,event_number, event_number_subevent,  sentence_clean, sentence, event_clean,icbellm,table_ordering) %>% distinct()
+    ) %>%  arrange(crisno, sentence_number,event_number, event_number_subevent, table_ordering) %>% distinct() %>%
+   group_by(crisno, sentence_number) %>%
+    mutate(table_ordering_max = max(table_ordering, na.rm=T)) %>%
+   ungroup() %>%
+   filter(!is.na(table_ordering) | is.infinite(table_ordering_max))
+  #group_by(sentence_number,sentence_clean) %>%
+  #summarise(
+  #  event_clean=paste(event_clean[event_clean!='' & !is.na(event_clean)] %>% na.omit() %>% unique(), collapse="\n", sep="\n"),
+  #  icbellm=paste(icbellm %>% na.omit() %>% unique(), collapse="  \n", sep="  \n") #two spaces and a new line are requires somehow
+  #) %>% ungroup() %>% arrange(sentence_number %>% as.numeric()) 
+
+value_normalized_to_value_qcode <- value_normalized_to_value_qcode %>% arrange(desc(nchar(value_normalized))) %>% filter(!value_normalized %in% "unspecified")
+
+combined$icbellm_icons <- combined$icbellm  %>%
+  str_replace_all("USSR","Soviet Union") %>%
+  str_replace_all("Moscow","Soviet Union")  %>%
+  str_replace_all("Khrushchev","Soviet Union")  %>%
+  str_replace_all("Soviet Union;Soviet Union","Soviet Union") %>%
+  str_replace_all("United States","United States of America")  %>%
+  str_replace_all(";US","United States of America")  %>%
+  str_replace_all("United States of America;United States of America","United States of America")  %>%
+  str_replace_all("United States of America;United States of America","United States of America")  %>%
+  str_replace_all("United States of AmericaUnited States of America","United States of America")   %>%
+  str_replace_all("North Atlantic Treaty Organization","NATO") %>% 
+  str_replace_all("Latin American states","Latin America")  %>% 
+  str_replace_all("Latin America;Latin America","Latin America")  
+
+for(i in 1:nrow(value_normalized_to_value_qcode)) {
+    #print(i)
+    #print(combined$icbellm_icons[69])
+    combined$icbellm_icons <- combined$icbellm_icons %>% str_replace_all(fixed(value_normalized_to_value_qcode$value_normalized[i]), value_normalized_to_value_qcode$value_qcode_clean[i])
+}
+
+library(dplyr)
+library(flextable)
+library(ftExtra)
+
+library(magick)
+temp <- combined  %>% #screen out duplicate veents
+  mutate(references=cumsum(sentence_clean %>% str_detect("References"))) %>% #Remove the ferences line
+  filter(references==0) %>%
+  dplyr::select(sentence_clean, event_clean, icbellm_icons) %>%
+  mutate_all(~replace_na(., '')) #%>%
+  #filter(icbellm!=lag(icbellm) | icbellm=='') %>%
+  #filter(event_clean!=lag(event_clean) | event_clean=='') 
+  
+  #mutate(sentence_clean=ifelse(sentence_clean==lag(sentence_clean) & row_number()>1,'',sentence_clean)) %>%
+  #mutate(event_clean=ifelse(event_clean==lag(event_clean) & row_number()>1,'',event_clean))
+
+library(officer)
+tp_196 <- temp %>% #screen duplicate events here
+  flextable() %>%
+  flextable::set_caption("Table 2: Cuban Missile Crisis") %>%
+  flextable::fontsize(size = 7, part = "all") %>%
+  flextable::bg( i = which( 1:nrow(temp) %% 2 == 1)  , j=1:3, part = "body", bg = "#EFEFEF") %>%
+  flextable::width(j = 1, width = 3.0) %>%
+  flextable::width(j = 2, width = 6) %>%
+  flextable::width(j = 3, width = 4.25) %>%
+  flextable::valign(j=1:3, valign = "top", part = "all") %>%
+  colformat_md(j=3) %>%
+  flextable::merge_v( j = 1) %>%
+  flextable::merge_v( j = 2) %>% #merge duplicates if multiple events per event
+  #merge_v( j = 2) %>% #breaks things
+  flextable::set_header_labels(col_keys = c("sentence_clean", "event_clean","icbellm_icons"), values = c("Original Sentence", "LLM Event Split","ICBeLLM Codings") ) %>%
+  flextable::padding(padding.top = 0, padding.bottom = 0) %>%
+  flextable::hline(j=1,i=c(1,which(temp$sentence_clean!=lag(temp$sentence_clean))), part = "body") %>% #, border = officer::fp_border(color = "gray")
+  flextable::hline(j=2,i=c(2,which(temp$sentence_clean!=lag(temp$sentence_clean)))-1, part = "body")  %>% #, border = officer::fp_border(color = "gray")
+  flextable::hline(j=3,i=c(2,which(temp$sentence_clean!=lag(temp$sentence_clean)))-1, part = "body") #  , border = officer::fp_border(color = "gray")
+
+#This is all broken unfortunately so you have to screenshot the html yourself
+#devtools::install_github("davidgohel/flextable")
+#flextable::save_as_image(x=tp_196 , path = "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/precision_191.svg", zoom=1)
+
+#set_flextable_defaults(font.family = "Liberation Sans")
+#Ok this is just broken and it's not getting fixed. I can take a screenshot of the html page. That's my only option.
+#flextable::save_as_image(x=tp_196 , path = "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_out/precision_191.svg", zoom=1)
+#ft_cuba_precision %>% save_as_image(path=here::here("replication_paper","arxiv_draft","case_study_cuban_precision.png")) # webshot = "webshot2"
+#save_as_image( x=tp_196,  path = "/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/paper/paper2_tp_196.png")
+
+```
+
+
+```{r, eval=F,output=T}
+
+#, output='asis'
+
+tp_196 %>% 
+  autofit()
+#We do this in image now
+
+```
+
+![Cuban Missile Crisis](Figure1_Cuban_Missile_Crisis3.png)
+
+## 6.2 Quality Control
+
+Our multiple choice prompting strategy is designed with speed in mind, requiring emitting only one or a few tokens. For accuracy we would have preferred a more elaborate prompting strategy like chain of thought, allowing the LLM to reason ‘out loud’ and correct earlier mistakes. As a compromise, we employ a second round of multiple choice prompting that asks only to evaluate the previous answer as correct or incorrect. The QA process accepts 87% (rejects 13%) of all answers which large variation indicating parts of the ontology are particularly difficult. Almost half of all answers from the prompt asking about do actions by unarmed actors that were uncooperative are rejected at this stage. Not only does the QA step serve as a last line of defense against incorrect answers, it provides a diagnostic for checking and improving prompts without peeking at the final evaluation data. Making that comparison to ground truth human labels is what we turn to next.
+
+
+```{r, eval=T, cache=T}
+
+#A lot of our poor recall is just errors.
+#interact_location in the ICBe data has country names sometimes instead of the 5 options, I don't know why.
+
+library(tidyverse)
+library(stringi)
+library(glue)
+
+#New plan we're going to filter to only expert codings.
+#Dead sentences have no actors listed in the wide, just use that.
+events_agreed_long <- readRDS("../data_in/ICBe_V1.1_events_agreed_long.Rds")
+events_agreed_long_filtered_experts_atleast2 <- events_agreed_long %>%
+  filter(sentence_span_text %>%
+           str_detect("\\.$")) %>%
+  filter(expert==1) %>% #Removes 626 degenerate sentence 
+  filter(!varname_normalized %>% str_detect("^condition_|raterconfidence|date_|interact_geoscope|duration|interact_location")) %>% #dropping dates and locations
+  group_by(crisno, sentence_number_int_aligned, sentence_span_text, #event_number_int
+           varname_normalized, value_normalized) %>%
+  filter(n()>=2) %>% #The idea here is that if 2 or more experts listed a country as actor_a then we're going to count it. 
+                                                   #even if they were talking about different events
+  ungroup()
+
+temp <- events_agreed_long_filtered_experts_atleast2 %>%
+               mutate(do_actor_a= ifelse(varname_normalized %in% c('do_actor_a'), value_normalized, NA)) %>%
+               mutate(do_actor_b= ifelse(varname_normalized %in% c('do_actor_b'), value_normalized, NA)) %>%
+               mutate(say_actor_a= ifelse(varname_normalized %in% c('say_actor_a'), value_normalized, NA)) %>%
+               mutate(say_actor_b= ifelse(varname_normalized %in% c('say_actor_b'), value_normalized, NA)) %>%
+               mutate(think_actor_a= ifelse(varname_normalized %in% c('think_actor_a'), value_normalized, NA)) %>%
+               group_by(crisno, sentence_number_int_aligned, sentence_span_text, event_number_int) %>%
+               fill(do_actor_a,do_actor_b,say_actor_a,say_actor_b,think_actor_a, .direction ="updown") %>%
+               group_by(crisno, sentence_number_int_aligned, sentence_span_text , do_actor_a, do_actor_b, say_actor_a, say_actor_b, think_actor_a, varname_normalized) %>%
+               summarise(value_normalized = value_normalized %>% unique() %>% sort() %>% paste(collapse=";")) 
+  
+events_agreed_long_filtered_experts_atleast2_wide <- temp %>%
+  filter(!varname_normalized %in% c('crisno','sentence_number_int_aligned','sentence_span_text','think_actor_a','say_actor_a','say_actor_b','do_actor_a','do_actor_b', 'crisis', 'icb_survey_version', 'section', 'sentencenumber')) %>%
+  pivot_wider( id_cols=c(crisno, sentence_number_int_aligned, sentence_span_text , think_actor_a, say_actor_a, say_actor_b, do_actor_a, do_actor_b),
+               names_from=varname_normalized,
+               values_from=value_normalized)
+
+dim(events_agreed_long_filtered_experts_atleast2_wide) #21660    74
+
+temp <- events_agreed_long_filtered_experts_atleast2_wide %>% mutate_all(as.character) %>% mutate_all(trimws) %>% as.matrix()
+temp[temp==""]=NA
+events_agreed_long_filtered_experts_atleast2_wide$count_filled_fields <-  rowSums(!is.na(temp))
+
+events_agreed_long_filtered_experts_atleast2_wide_topevent <- events_agreed_long_filtered_experts_atleast2_wide %>%
+  arrange(crisno, sentence_number_int_aligned, sentence_span_text , desc(count_filled_fields)) %>%
+  group_by(crisno, sentence_number_int_aligned, sentence_span_text ) %>%
+  filter(row_number()==1)
+
+#events_agreed_long_filtered_experts_atleast2 %>% count(varname_normalized) %>%
+#  filter(varname_normalized %>% str_detect('actor'))
+
+#This already collapses codings to specific events.
+#Every unique set of actors got an event. 
+#events_agreed_wide <- readRDS("/media/skynet3/8tb_a/rwd_github_private/ICBeLLM/data_in/ICBe_V1.1_events_agreed.Rds")
+#events_agreed_wide_filtered <- events_agreed_wide %>% filter(sentence_span_text %>% str_detect("\\.$")) #Removes 626 degenerate sentence 
+
+#To minimize code rewrites we just rename it to the older filtered name, but know that it's the highly filtered, 2 experts, 1 event per, with the most agreed fields.
+events_agreed_wide_filtered <- events_agreed_long_filtered_experts_atleast2_wide_topevent
+
+#Ok new plan, we're going to keep at most one of each type, so one thought, one speech, one action, and a sentence can have each.
+
+#We're going to also only take 1 event per sentence. The one with the most details tends to be the one with the most agreement.
+temp <- events_agreed_wide_filtered %>% mutate_all(as.character) %>% mutate_all(trimws) %>% as.matrix()
+temp[temp==""]=NA
+events_agreed_wide_filtered$count_filled_fields <-  rowSums(!is.na(temp))
+events_agreed_wide_filtered <- events_agreed_wide_filtered %>%
+                               mutate_if(is.character, list(~na_if(.,""))) %>% #make sure you replace empty quots with NAs or it'll break everything
+                               mutate(event_type_thought = !is.na(think_actor_a) ) %>%
+                               mutate(event_type_say = !is.na(say_actor_a) | !is.na(say_actor_b) ) %>%
+                               mutate(event_type_do = !is.na(do_actor_a) | !is.na(do_actor_b) ) %>% #if either actor isn't missing it's a do
+                               #mutate(event_type_do_act = !is.na(do_actor_a) & is.na(do_actor_b) ) %>% #we're punting on this now plus it was bugged
+                               #mutate(event_type_do_interact = !is.na(do_actor_a) & !is.na(do_actor_b) ) %>%
+                               mutate(event_type_yesno = ifelse(is.na(event_type), "does not have an event","has an event" )) %>% 
+  
+                               mutate(event_type_armed_vs_unarmed = case_when( 
+                                        !is.na(interact_decreasecoop) | !is.na(interact_increasecoop) | !is.na(act_uncooperative) | !is.na(act_cooperative)   ~ "unarmed",
+                                        !is.na(interact_escalate) | !is.na(interact_deescalate) | !is.na(act_escalate) | !is.na(act_deescalate)   ~ "armed",
+                                 )
+                                ) %>%
+                               arrange(count_filled_fields %>% desc()) %>% 
+                               #group_by(crisno, sentence_number_int_aligned,event_type_new) %>%  #keeping one of each type
+                               # filter(row_number()==1) %>% 
+                               group_by(crisno, sentence_number_int_aligned) %>%  #Now just keeping only one per, whichever had the most details
+                                 filter(row_number()==1) %>% 
+                               ungroup() %>%
+                               group_by(crisno, sentence_number_int_aligned) %>%
+                                   mutate(
+                                     sentence_type_includes_thought = max(event_type_thought),
+                                     sentence_type_includes_say = max(event_type_say),
+                                     sentence_type_includes_do = max(event_type_do)
+                                   ) %>%
+                               ungroup() %>% 
+                                mutate(do_leaf=coalesce(interact_increasecoop, interact_decreasecoop, interact_deescalate, interact_escalate,
+                                      act_escalate, act_deescalate, act_cooperative, act_uncooperative)) #%>% #this fails because '' are being treated as values
+                               #not doing because it should be very sparse now
+                               #mutate_all(replace_na, 'none'  ) #have to do this last because the codings above depend on NAs to exist
+
+#Some cleaning
+#Need to recode event type based on what actors are listed
+events_agreed_wide_filtered <- events_agreed_wide_filtered %>% arrange(crisno, sentence_number_int_aligned)
+
+
+events_agreed_long_filtered <- events_agreed_wide_filtered %>% 
+                                dplyr::select(-event_type_thought,-event_type_say,-event_type_do,-sentence_type_includes_thought,-sentence_type_includes_say,-sentence_type_includes_do) %>%
+                               pivot_longer(cols=-c('crisno' ,'sentence_number_int_aligned' ,'sentence_span_text','count_filled_fields')) %>%
+                               filter(!is.na(value)) %>%
+                               mutate( value = value %>% strsplit(";") ) %>%
+                               unnest(value) %>%
+                               ungroup() %>%
+                               mutate(value_formatch = value %>% str_replace_all("[^A-Za-z0-9 ]","") %>% tolower() %>% trimws() ) %>%
+                               mutate(sentence_formatch = sentence_span_text %>% str_replace_all("[^A-Za-z0-9 ]","") %>% tolower() %>% trimws() ) 
+   
+#126,399 tokens, 10,291 crisis-sentences
+dim(events_agreed_long_filtered)
+
+ICBeLLM <- read_csv("../data_out/icbe_all_codings.csv", na = "")
+
+ICBeLLM_long_sentence <- ICBeLLM %>% select(-chunk,-chunk_type,  -events)  %>% #crisno, sentence_number, sentence, thought_leaf:interact_territory
+                          mutate_all(as.character) %>% #across(thought_leaf:interact_territory
+                           pivot_longer(cols=-c('crisno', 'sentence_number', 'sentence')) %>%
+                           filter(!is.na(value)) %>%
+                           filter(!name %>% str_detect('prompt')) %>%
+                           mutate( value = value %>% strsplit(";") ) %>% #here's where we split on ;
+                           unnest(value) %>%
+                           mutate(value_formatch = value %>% str_replace_all("[^A-Za-z0-9 ]","") %>% tolower() %>% trimws() ) %>%
+                           mutate(sentence_formatch = sentence %>% str_replace_all("[^A-Za-z0-9 ]","") %>% tolower() %>% trimws() ) 
+
+```
+
+
+```{r, eval=F,  output=T}
+
+#ICBeLLM %>%
+#  dplyr::select(crisno, sentence_number, event_number, event_number_subevent, quality_control_thought, quality_control_say, quality_control_do_1, quality_control_do_2, quality_control_do_3, quality_control_do_4) %>%
+#  tidyr::pivot_longer(cols = c(quality_control_thought, quality_control_say, quality_control_do_1, quality_control_do_2, quality_control_do_3, quality_control_do_4)) %>%
+#  dplyr::filter(!is.na(value)) %>%
+#  count(value)
+
+ICBeLLM %>%
+  dplyr::select(crisno, sentence_number, event_number, event_number_subevent, quality_control_thought, quality_control_say, quality_control_do_1, quality_control_do_2, quality_control_do_3, quality_control_do_4) %>%
+  tidyr::pivot_longer(cols = c(quality_control_thought, quality_control_say, quality_control_do_1, quality_control_do_2, quality_control_do_3, quality_control_do_4)) %>%
+  dplyr::filter(!is.na(value)) %>%
+  dplyr::group_by(name) %>%
+  dplyr::mutate(total = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(name, value) %>%
+  dplyr::summarise(percent = round(n() / total, 2)) %>%
+  dplyr::ungroup() %>% 
+  dplyr::distinct() %>%
+  dplyr::filter(value %in% "correct") %>%
+  arrange( percent %>% desc() ) %>%
+  dplyr::rename(`Ontology Part` = name, `Percent Accepted` = percent) %>%
+  dplyr::mutate(`Ontology Part` = dplyr::recode(`Ontology Part`,
+                                                      "quality_control_do_1" = "Do (armed, escalatory)",
+                                                      "quality_control_do_2" = "Do (armed, deescalatory)",
+                                                      "quality_control_do_3" = "Do (unarmed, uncooperative)",
+                                                      "quality_control_do_4" = "Do (unarmed, cooperative)",
+                                                      "quality_control_say" = "Speech",
+                                                      "quality_control_thought" = "Thought")) %>%
+  dplyr::select(`Ontology Part`, `Percent Accepted`) %>%
+  #knitr::kable() %>%
+  flextable() %>%
+  flextable::set_caption(caption = "Table 3: Quality Control Acceptance Rate")
+```
+
+## 6.3 Recall
+
+While the ICBeLLM codings appear to have face validity in the qualitative case study, we want to move toward a more quantitative comparison of performance across the full corpus. We therefore estimate the recall of ICBeLLM against the original ICBe human codings. We evaluate ICBeLLM against ICBe v1.1.^[Retrieved August 20, 2023,  https://github.com/CenterForPeaceAndSecurityStudies/ICBEdataset/).] The two do not have an exact one to one mapping because ICBeLLM is produced at a higher level of resolution, the crisis-sentence-event and ICBe was measured only at the crisis-sentence (with up to 3 different events produced per sentence but no information about which part of the sentence). Our strategy is to evaluate recall at the sentence-token unit of observation. We define recall as the probability that a sentence-token emitted by a human was also emmitted by the system, $Pr(Token_{LLM} | Token_{H})$. More concretely, we consider it a hit if ICBeLLM emitted the same fact about a sentence, e.g. the name of an actor, a behavior employed, a number of casualties etc, and we consider it a miss if ICBe emitted a fact about that sentence that was not emitted by ICBeLLM. We further normalize and clean both sets to reduce false misses do to unimportant differences like capitalization, abbreviation, etc.
+
+How to choose which of the many possible aggregations should be considered the human "baseline" for this task is not trivial. The ICBe project evaluated multiple approaches to human coding and aggregating across disagreements and they provide important insights into the difficult of the task and possible sources of variation.^[https://github.com/CenterForPeaceAndSecurityStudies/ICBEdataset/raw/master/replication_paper/arxiv_draft/appendix.pdf] Each sentence of each crisis was typically coded by at least 2 trained coders and 2 novice coders, with a third expert coder assigned as a tie breaker for sentences with disagreements. Intercoder agreement varied wildly between types of coders and parts of the ontology, with experts averaging about 65% overall (as high as 80% and as low as 20% across the ontology), and novice coders averaging only around 30% (ranging from 0% to 40% across the ontology). Intercoder agreement was correlated with coder's own self reported confidence in their scores, and reasons given for low confidence split about evenly between a lack of information or confusing writing in the source text and lack of coverage of the ontology over that specific type of detail in the text. It was further observed that coders had individual styles, choosing different levels of specificity when abstracting events. In short, the task of very fine grained event abstraction is not simple even for humans because even two trained people can look at the same narrative and find different details to be most salient.
+
+As with the ICBe project, we focus on areas of high agreement where multiple coders all found the same detail salient and mapped in the same way. We employ the ICBe "Agreed-Wide" version where the unit of analysis is the crisis-sentence-actor-event type and it includes only codings with (1) at least one expert coder's vote and (2) and a majority of either experts or novice coders votes. We further filter down to one event per sentence, choosing the one with the most coded information. This leaves 126,399 tokens receiving wide agreement across 10,291 crisis-sentences. We find about 72% recall overall which is a comparable rate of disagreement between ICBeLLM and ICBe as between expert human coders within ICBe and much higher than among novice coders.
+
+We disaggregate recall by part of the ontology in the table below. Recall ranges from 27% to 87% across the ontology. We make several broad observations. First, ICBeLLM is not yet optimized for emitting more than one token when asked and so it will mechanically have lower recall on questions that human coders tended to choose many tags, e.g. actors. All four of the top performing parts, domains, fatalities, territory, and units tend to have only one human tag. Second, it was easier to assign the initiator of a speech or do than it was to assign the target. Third, questions with options that were more self-evident performed better, such as speech behaviors like threats and offers, where questions which were more idiosyncratic to the ICBe coding rules performed poorly, e.g. thought behaviors like fear, policy, discovery, etc. We did not fine tune, provide few shot examples, even definitions in most cases and so this is unsurprising.
+
+```{r, eval=T}
+
+#https://docs.google.com/spreadsheets/d/1h1ooSdlnep4HTwzAyKK05DX7h0cCVOYb4rQzqg1qGdo
+#https://docs.google.com/spreadsheets/d/1QP2TQjY8Ipqeb_k2SbLkZBcHg-p0GRvO1atrnh5EChc/edit?usp=sharing
+#https://docs.google.com/spreadsheets/d/1QP2TQjY8Ipqeb_k2SbLkZBcHg-p0GRvO1atrnh5EChc/edit?usp=sharing
+library(tidyverse)
+library(tictoc)
+sheet_id <- "1QP2TQjY8Ipqeb_k2SbLkZBcHg-p0GRvO1atrnh5EChc" # Replace this with your actual sheet ID
+csv_link <- paste0("https://docs.google.com/spreadsheets/d/", sheet_id, "/gviz/tq?tqx=out:csv&sheet=", "prompts")
+# Read CSV data from the link
+llm_icbe_actors_handlabeled <- read_csv(csv_link) %>% janitor::remove_empty( "cols")
+
+llm_icbe_actors_handlabeled_clean <- llm_icbe_actors_handlabeled %>% dplyr::select(value,new_name,wikidata) %>% distinct() %>% filter(!is.na(wikidata))
+
+#mapping to qcodes
+qcodes <- bind_rows(
+  llm_icbe_actors_handlabeled_clean %>% dplyr::select(value,wikidata),
+  llm_icbe_actors_handlabeled_clean %>% dplyr::select(value=new_name,wikidata)
+) %>% distinct() %>% filter(!wikidata %>% str_detect(";")) %>%
+  mutate(value=value %>% tolower() %>% trimws() )
+
+
+recall_df_raw <- events_agreed_long_filtered  %>% 
+             mutate_all(as.character)  %>% 
+             mutate(name=ifelse(name %in% "thinkkind", "thought_leaf",name)) %>%
+             mutate(name=ifelse(name %in% "sayintkind", "speech_leaf",name)) %>%
+             dplyr::select(crisno, sentence_formatch, variable=name, Y=value_formatch ) %>% 
+             left_join(ICBeLLM_long_sentence  %>% dplyr::select(crisno, sentence_formatch, variable=name, Y_hat=value_formatch ) %>% mutate_all(as.character) ) %>% 
+             distinct() %>%
+             ungroup() %>%
+             left_join(qcodes %>% dplyr::select(Y=value,Y_qcode=wikidata)) %>%
+             left_join(qcodes %>% dplyr::select(Y_hat=value,Y_hat_qcode=wikidata)) %>%
+             mutate(hit= tolower(Y) == tolower(Y_hat)) %>%
+             mutate(hit=ifelse( !is.na(Y_qcode) & !is.na(Y_hat_qcode) & ( tolower(Y_qcode) == tolower(Y_hat_qcode)  ), TRUE,  hit ) ) %>% #Recover the actor matches we did by hand
+             mutate(hit=ifelse( Y_hat=='start of a crisis' & Y=='start of crisis'  , TRUE,  hit ))  %>% #Recover the actor matches we did by hand
+             mutate(hit=ifelse( Y_hat=='end of a crisis' & Y=='end of crisis'  , TRUE,  hit ) )  #Recover the actor matches we did by hand
+
+recall_df_raw$hit %>% sum(na.rm=T) #18609 #17708 #16375 #81,005 #15037 #16169, another 1k are saved this way
+
+Y <- NULL
+Y_hat <-  NULL
+recall_df <- recall_df_raw %>%
+             group_by(crisno, sentence_formatch, variable, Y) %>% #This is slow?
+             summarise(hit = hit %>% sum() )
+
+recall_df_raw_actors <- recall_df_raw %>% filter(variable %>% str_detect('actor')) %>% dplyr::select(Y, Y_hat) %>% distinct() %>% filter(!Y %in% Y_hat)
+recall_df_raw_actors %>% write_csv("../data_out/actors_to_recode.csv")
+
+
+recall_df_raw_thought_leaf <- recall_df_raw %>% filter(variable %>% str_detect('thought_leaf')) %>% dplyr::select(variable, Y, Y_hat) %>% distinct() %>% filter(!Y %in% Y_hat) %>% filter(!is.na(Y_hat))
+recall_df_raw_thought_leaf %>% write_csv("../data_out/thought_leaf.csv")
+
+#Fix Geoscope
+
+#Fix Location
+
+#Overall
+#recall_df %>% ungroup() %>%
+#  filter(!is.na(hit)) %>%
+#  summarise(hits= sum(hit>0), possible=n()) %>% #t
+#  mutate(recall= round(hits/possible,2)) 
+  
+#By category
+recall_df %>%
+  filter(!is.na(hit)) %>%
+  group_by(variable) %>% 
+  summarise(hits= sum(hit>0), possible=n()) %>% #t
+  mutate(recall= round(hits/possible,2)) %>%
+  arrange(desc(recall)) %>%
+# Calculate and format recall
+  dplyr::mutate(
+    recall = round(hits / possible, 2),
+    variable = stringr::str_replace_all(variable, "_", " "),
+    variable = stringr::str_replace_all(variable, "interact","") %>% trimws(),
+    variable = stringr::str_to_title(variable)
+  ) %>%
+  flextable() %>%
+  flextable::set_caption(caption = "Table 4: Recall by Variable")
+```
+
+# 6.4 Confusion
+
+For a relatively small subset of sentences, we can dig into the specific disagreements between ICBeLLM and the ICBe human consensus. We only have an unambigious 1 to 1 match between ICBe and ICBeLLM when both only assigned a single behavior token to a sentence. That sample is both smaller (3,228/10,573 or 30% of all eligible for recall) and unrepresentative because it implies simpler sentences that produced fewer events. Still we find it useful for understanding which parts of the ontology are performing the worst and if the confusion between labels substantively impacts our interpretation of the final codings.
+
+```{r}
+
+#recall_df_raw %>% 
+#  filter(variable %in% c('thought_leaf' , 'speech_leaf' , 'do_leaf'  )) %>%
+#  group_by(crisno, sentence_formatch, variable) %>%
+#    mutate(ICBe_label_count=n()) %>%
+#  ungroup() %>%
+#  filter(!Y_hat %>% is.na()) %>%
+#  filter(ICBe_label_count==1)
+
+library(tidyverse)
+library(ggplot2)
+data <- recall_df_raw %>% 
+  filter(variable %in% c('thought_leaf'  )) %>%
+  group_by(crisno, sentence_formatch, variable) %>%
+    mutate(ICBe_label_count=n()) %>%
+  ungroup() %>%
+  filter(!Y_hat %>% is.na()) %>%
+  filter(ICBe_label_count==1) %>%
+  count(Y, Y_hat) %>%
+  arrange(Y, n %>% desc() ) 
+  
+  
+library(tidyverse)
+library(ggplot2)
+library(dendextend) ; #install.packages('dendextend')
+
+# Assuming your data is stored in 'data'
+# Convert factors to character to avoid reordering issues
+data$Y <- as.character(data$Y)
+data$Y_hat <- as.character(data$Y_hat)
+data$Y <- data$Y %>% str_replace_all(" of ", " ") %>% str_replace_all( " ", "\n")
+data$Y_hat <-  data$Y_hat %>% str_replace_all(" of ", " ") %>% str_replace_all( " ", "\n")
+# Calculate distance matrices for actual and predicted classes
+#distance_actual <- dist(as.matrix(table(data$Y)))
+#distance_predicted <- dist(as.matrix(table(data$Y_hat)))
+
+# Perform hierarchical clustering
+#hc_actual <- hclust(distance_actual)
+#hc_predicted <- hclust(distance_predicted)
+
+# Order data according to the clusters
+#data$Y <- factor(data$Y, levels = labels(hc_actual)[order.dendrogram(as.dendrogram(hc_actual))])
+#data$Y_hat <- factor(data$Y_hat, levels = labels(hc_predicted)[order.dendrogram(as.dendrogram(hc_predicted))])
+
+# Assuming your data is in a variable named 'data'
+p2 <- data %>% ggplot( aes(x = Y, y = Y_hat, fill = n)) +
+  geom_tile() +
+  geom_text(aes(label = n), color = "white") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(title = "Thought Confusion Matrix", 
+       subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single thought behavior.",
+       x = "Actual Class", y = "Predicted Class") +
+  theme_minimal() +
+  theme(
+    #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10),
+    #axis.text.y = element_text(size = 10),
+    legend.position = "none"
+    ) 
+
+```
+
+We begin first with the simplest part of the ontology, thoughts, which only have an initiating actor and just 12 possible behaviors. We find the largest sources of confusion to be perfectly reasonable. The two most common types of thoughts are the start and end of a crisis, and the start of the crisis is most frequently confused by ICBeLLM with the three highly similar behaviors of an actor experiencing a fear, becoming convinced of a fact, or discovering a fact. These regularly appear in the crisis narratives as the why for a crisis beginning.
+
+```{r, eval=T, fig.width=12, fig.height=8, output=T}
+p2
+```
+
+
+```{r}
+#81,615      6
+#3,218
+#recall_df_raw %>% 
+#  filter(variable %in% c('do_leaf'  )) %>%
+#  filter(variable %in% c('do_leaf' , 'speech_leaf', 'thought_leaf')) %>%
+#  group_by(crisno, sentence_formatch, variable) %>%
+#    mutate(ICBe_label_count=n()) %>%
+#  ungroup() %>%
+#  filter(!Y_hat %>% is.na()) %>%
+#  filter(ICBe_label_count==1) %>%
+#  count(Y, Y_hat) %>%
+#  arrange(Y, n %>% desc() )
+
+library(tidyverse)
+library(ggplot2)
+data <- recall_df_raw %>% 
+  filter(variable %in% c('speech_leaf'  )) %>%
+  group_by(crisno, sentence_formatch, variable) %>%
+    mutate(ICBe_label_count=n()) %>%
+  ungroup() %>%
+  filter(!Y_hat %>% is.na()) %>%
+  filter(ICBe_label_count==1) %>%
+  count(Y, Y_hat) %>%
+  arrange(Y, n %>% desc() ) 
+  
+  
+library(tidyverse)
+library(ggplot2)
+library(dendextend) ; #install.packages('dendextend')
+
+# Assuming your data is stored in 'data'
+# Convert factors to character to avoid reordering issues
+data$Y <- as.character(data$Y)
+data$Y_hat <- as.character(data$Y_hat)
+data$Y <- data$Y %>% str_replace_all( "  ", " ") %>% str_replace_all( " ", "\n") %>% str_replace_all( "\n\n", "\n")
+data$Y_hat <- str_replace_all(data$Y_hat, " ", "\n")
+# Calculate distance matrices for actual and predicted classes
+#distance_actual <- dist(as.matrix(table(data$Y)))
+#distance_predicted <- dist(as.matrix(table(data$Y_hat)))
+
+# Perform hierarchical clustering
+#hc_actual <- hclust(distance_actual)
+#hc_predicted <- hclust(distance_predicted)
+
+# Order data according to the clusters
+#data$Y <- factor(data$Y, levels = labels(hc_actual)[order.dendrogram(as.dendrogram(hc_actual))])
+#data$Y_hat <- factor(data$Y_hat, levels = labels(hc_predicted)[order.dendrogram(as.dendrogram(hc_predicted))])
+
+# Assuming your data is in a variable named 'data'
+p1 <- data %>% ggplot( aes(x = Y, y = Y_hat, fill = n)) +
+  geom_tile() +
+  geom_text(aes(label = n), color = "white") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(title = "Speech Matrix", 
+       subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single speech behavior.",
+       x = "Actual Class", y = "Predicted Class") +
+  theme_minimal() +
+  theme(
+    #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10),
+    #axis.text.y = element_text(size = 10),
+    legend.position = "none"
+    ) 
+
+```
+
+The next most complicated behavior of speech shows greater but understandable confusion between behaviors. The most common speech type is appeal, which is most often confused for an offer. Disapprovals are confused with appeals or accusations. Rejections are confused for expressions of intent. Ultimatums are confused for threats and expressions of intent. Offers are confused for promises. And so on. We noted this problem in the original ICBe project that boundary between labels was not always well defined, and that coders developed unique styles exploiting synonymy of the ontology.
+
+```{r, eval=T, fig.width=12, fig.height=8, output=T}
+p1
+```
+
+Finally we look at confusion of the do labels, paired down to only those that appear in ICBe 5 or more times as there are many possible do behaviors. Again the greatest sources of confusion would not lead to major substantive consequences. Attacks are most commonly confused with battles/clashes, bombardments, continuation of previous fighting, etc. Meetings are most commonly confused for discussions and vice versa. Deployments to an area are confused for invasions/occupations. In short the kinds of errors we see are what we would hope to see if our overall approach was correct but our ontology and definitions need to be clearer.
+
+```{r}
+
+library(tidyverse)
+library(ggplot2)
+library(dendextend) ; #install.packages('dendextend')
+library(tidyverse)
+library(ggplot2)
+data <- recall_df_raw %>% 
+  filter(variable %in% c('do_leaf'  )) %>%
+  group_by(crisno, sentence_formatch, variable) %>%
+    mutate(ICBe_label_count=n()) %>%
+  ungroup() %>%
+  filter(!Y_hat %>% is.na()) %>%
+  filter(ICBe_label_count==1) %>%
+  count(Y, Y_hat) %>%
+  arrange(Y, n %>% desc() ) %>%
+  group_by(Y) %>%
+    mutate(y_n=n()) %>%
+  ungroup() %>%
+  group_by(Y_hat) %>%
+    mutate(Y_hat_n=n()) %>%
+  ungroup() %>%
+  filter(y_n>=5)
+
+# Assuming your data is stored in 'data'
+# Convert factors to character to avoid reordering issues
+data$Y <- as.character(data$Y)
+data$Y_hat <- as.character(data$Y_hat)
+#data$Y <- data$Y %>% str_replace_all(" of ", " ") %>% str_replace_all( " ", "\n")
+#data$Y_hat <-  data$Y_hat %>% str_replace_all(" of ", " ") %>% str_replace_all( " ", "\n")
+# Calculate distance matrices for actual and predicted classes
+#distance_actual <- dist(as.matrix(table(data$Y)))
+#distance_predicted <- dist(as.matrix(table(data$Y_hat)))
+
+# Perform hierarchical clustering
+#hc_actual <- hclust(distance_actual, method="ward.D2")
+#hc_predicted <- hclust(distance_predicted, method="ward.D2")
+
+# Order data according to the clusters
+#data$Y <- factor(data$Y, levels = labels(hc_actual)[order.dendrogram(as.dendrogram(hc_actual))])
+#data$Y_hat <- factor(data$Y_hat, levels = labels(hc_predicted)[order.dendrogram(as.dendrogram(hc_predicted))])
+
+# Assuming your data is in a variable named 'data'
+p3 <- data  %>%
+      ggplot( aes(x = Y, y = Y_hat, fill = n)) +
+      geom_tile() +
+      geom_text(aes(label = n), color = "white") +
+      scale_fill_gradient(low = "blue", high = "red") +
+      theme_minimal() +
+      labs(title = "Do Confusion Matrix",
+           subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single do behavior. Only behaviors with >=5 examples.",
+           x = "Actual Class", y = "Predicted Class") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 12),
+            axis.text.y = element_text(size = 12),
+            legend.position = "none") 
+
+```
+
+```{r, eval=T, fig.width=12, fig.height=8, output=T}
+p3
+```
+
+
+```{r, eval=F, fig.width=19, fig.height=26, output=T}
+ 
+#fig.width=24, fig.height=30
+#Combined 
+library(ggplot2)
+library(cowplot)
+# Combine the plots
+combined_plot <- plot_grid(
+  # Top row: p1 and p2 side by side
+  plot_grid(p1, p2, ncol = 2, align = 'v'),
+
+  # Bottom row: p3, spanning the entire width
+  p3,
+
+  # Specify the layout: 2 rows
+  ncol = 1, 
+  rel_heights = c(1, 2) # Adjust relative heights if needed
+)
+
+# Display the combined plot
+print(combined_plot)
+```
+
+# 7.0 Conclusion
+
+We investigated whether the current generation of open source LLMs are able to take over previously human only international event coding and extraction tasks. We attempted to automate a very complicated and high quality ontology of international events which required human labeling to perform and could not be achieved via the last generation of dictionary based NLP methods. We evaluated the precision of the automated codings on a detailed qualitative case study and the recall over the full corpus of tens of thousands of events across nearly five hundred historical crises. We found that we have entered the age of at home event coding, where researchers and students will be able to mine text for advanced concepts and regularities nearly for free and forever with open source consumer hardware.
+
+We stress that this was only a successful proof of concept, and just the floor for what is possible. We concluded our experiments at an interesting inflection point in open source LLM development. Very large open source models capable of competing with commercial alternatives had just become both sufficiently capable and compressible to run at all on consumer level hardware. This home setup works but is not fast and many of our prompt strategies are geared around minimizing the number of tokens emitted and multistage feedback and interaction with the LLM. Already another generation of open source models are arriving which rival commercial LLMs but at a fraction of the memory and compute requirements. This will enable more sophisticated prompt strategies which allow for reflection, interrogation, and brainstorming and will greatly improve both the recall and precision for this kind of event extraction task. We, for example, employed very simple post-coding quality assurance checks. These and many others will become commonplace as the time and energy cost per token continues to fall year after year.
+
+The ICBe project is an example of right place at the right time. It built an ontology with very high coverage and detail at the risk of being too unwieldy to justify another large commitment in human coders on new documents. But it completed just in time for the appearance of open source large language models that can easily implement the coding at scale. Both the research investment in ontology design and human labeling of examples made translation zero shot prompts for an LLM a relatively simple exercise.
+
+Given the pace of technological advancement, we expect event projects to continue this trend of shifting human labor towards ontology design. Undervalued definition and codebook authoring has been rebranded as ‘prompt engineering’ for a new generation of systems with a LLM in the loop rather than a hired human coder. No matter the justification, this is a positive development for empiricism in social science. Definitions can now we chosen at the time of the analysis and rerun overnight rather than pre-committed to years earlier in the cycle of grant raising, hiring, training, project management, and eventually publication. This reduction in the lag between theory generation and data collection from an unexpected source is a critical and welcome development in the maturation of social science on international events.
+
+# Works Cited
