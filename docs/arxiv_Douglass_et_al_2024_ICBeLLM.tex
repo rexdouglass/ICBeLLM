@@ -123,6 +123,8 @@
 \newunicodechar{✗}{\ding{55}}
 \newunicodechar{̆}{\u{}}
 \newunicodechar{∈}{\in}
+\newcommand{\downarrowcorner}{\rotatebox[origin=c]{180}{$\Lsh$}}
+\newunicodechar{↳}{\downarrowcorner}
 \makeatletter
 \@ifpackageloaded{caption}{}{\usepackage{caption}}
 \AtBeginDocument{%
@@ -195,19 +197,19 @@ San Diego\\\\}
 \maketitle
 \begin{abstract}
 The International Crises Behavior Events (ICBe) ontology provides high
-coverage over the thoughts, communications, and actions in the events
-that constitute international relations. The disadvantage of that level
-of detail is high human capital costs in manually applying it to new
+coverage over the thoughts, communications, and actions that constitute
+international relations. A major disadvantage of that level of detail is
+that it requires large human capital costs to apply it manually to new
 texts. Whether such an ontolgy is practical for international relations
 research given limited human and financial resources is a pressing
 concern. We introduce a working proof of concept showing that ICBe
-codings can be reliably extracted from new text using the current
+codings can be reliably extracted from new texts using the current
 generation of open source large language models (LLM) running on
 consumer grade computer hardware. Our solution requires no finetuning
 and only limited prompt engineering. We detail our solution and present
 benchmarks against the original ICBe codings. We conclude by discussing
 the implications of very high quality event coding of any text being
-within reach of individual researchers and home enthusiasts.
+within reach of individual researchers with limited resources.
 \end{abstract}
 
 \section{Introduction}\label{introduction}
@@ -221,29 +223,26 @@ narratives about international events. However, it is unwieldy and labor
 intensive necessitating a search for ways to automated its application
 to new corpora going forward. We present a proof of concept that ICBe
 can be automated, using current generation open source large language
-models, running just on consumer grade hardware. Further, ours strategy
+models, running just on consumer grade hardware. Further, our strategy
 requires no fine-tuning and limited prompt-engineering, making it easy
-to employ by subject experts and importantly to quickly modify to cover
-different topics and questions.
+to employ by subject experts and to modify for new topics.
 
-This brief proof of concept is organized into 8 sections as follows.
-Section 2.0 formalizes the machine learning task: event abstraction from
-dense historical narratives. Section 3.0 outlines the recent state of
-the art in event coding and large language models. Section 4.0 describes
-our final technical stack and how it optimizes across a number of
-constraints and goals. Section 5.0 describes in detail how we map the
-original ICbe ontology and human coding effort to the new ICBeLLM
-ontology and corresponding prompting strategy. Section 6.0 then turns to
-evaluation. Section 6.1 evaluates the precision of ICBeLLM codings with
-a full visualization of the entire Cuban Missile Crisis and
-corresponding event codings. Section 6.2 describes the results of the
-quality assurance step we use to maintain high precision of codings.
-Section 6.3 evaluates recall against the full ICBe human based codings.
-We conclude evaluation with Section 6.4 a deep dive into the kinds of
-errors observed between the automated and human codings. A final section
-7.0 concludes and situates ICBeLLM in the greater context of the rapid
-improvement in natural language processing in the recent past and near
-future.
+This brief proof of concept is organized as follows. Section 2
+formalizes the machine learning task: event abstraction from dense
+historical narratives. Section 3 outlines the recent state of the art in
+event coding and large language models. Section 4 describes our final
+technical stack and how it optimizes across a number of constraints and
+goals. Section 5 describes in detail how we map the original ICbe
+ontology and human coding effort to the new ICBeLLM ontology and
+corresponding prompting strategy. Section 6 evaluates the performance of
+the solution, starting with precision demonstrated by a full
+visualization of the entire Cuban Missile Crisis and corresponding
+codings, then detailing the results of automated quality assurance
+steps, moving to recall against the original human coded ICBe dataset,
+and ending with a deep dive into the kinds of errors observed between
+the automated and human codings. Finally, Section 7 concludes by
+situating ICBeLLM in the greater context of the rapid improvement in
+natural language processing in the recent past and near future.
 
 \section{Task Definition and Domain}\label{task-definition-and-domain}
 
@@ -253,7 +252,7 @@ History suffers from the coastline paradox, where there more finely you
 measure the more detail you will necessarily find. Event coding is
 therefore both a judgement about what happened and also a judgement
 about at what level of detail to summarize that information. Formally, a
-historical episode, H, is demarcated by a period of time
+historical episode, H, is demarcated by a period of time,
 \([T_{start}, T_{end}] ∈ T\), a set of Players \(p ∈ P\), and a set of
 behaviors they undertook during that time \(b ∈ B\). International
 Relations, \(IR\), is the system of regularities that govern the
@@ -333,7 +332,7 @@ is whether or not current generation open source LLMs running on
 consumer hardware can solve our task and thus bring international event
 coding within reach for social scientists everywhere and forever (H.
 Chen et al. 2023). For the same reason, we are focused on a solution
-that does not require fine tuning and instead relies on prompts that can
+that does not require fine-tuning and instead relies on prompts that can
 be changed and expanded quickly and by those with only area knowledge.
 We seek a proof of concept that we have crossed the threshold of
 democratized event coding.
@@ -342,7 +341,7 @@ The details of our solution are as follows. Our base model is the 70b
 parameter variant of Meta's open source Llama 2 model.\footnote{See
   Roumeliotis, Tselikas, and Nasiopoulos (2023) for a survey of use
   cases across early adopters of this model.} We employ an instruction
-fine tune of it called Platypus2-70B-instruct which is better suited to
+fine-tune of it called Platypus2-70B-instruct which is better suited to
 solving specific tasks than the base model which is designed primarily
 for interactive chat (Lee, Hunter, and Ruiz 2023). To fit within our
 compute/memory budget of two high end commercial graphics cards
@@ -425,6 +424,8 @@ accordance with the original ontology. After some steps we perform a
 quality assurance check where we move from selecting an answer to
 reviewing whether an answer is correct.
 
+\includegraphics{Table1.png}
+
 \section{Evaluation}\label{evaluation}
 
 Performance evaluation for an information abstraction task poses many
@@ -435,7 +436,7 @@ codings, and even two human coders, might disagree in at least 5 ways:
 sentence implies more events for one than the other, (3) they agree on
 the event but disagree on the level of detail supported by the text, (4)
 they agree on the event but disagree on the level of summarization that
-is desirable (what information to throw away), (5) they agree on the
+is desirable (what information to throw away), or (5) they agree on the
 event but choose two different substantively equivalent ways of phrasing
 it, e.g.~a threat to do something unless a concessions is provided
 versus a promise not to do something if a concession is provided.
@@ -489,13 +490,27 @@ pledge. Most of the actions and ancillary do details are coded correctly
 but the actor directions becomes confused, and the idea of a promise to
 not invade became lost.
 
+\newpage{}
+
 \begin{figure}[H]
 
-{\centering \includegraphics{Figure1_Cuban_Missile_Crisis3.png}
+{\centering \includegraphics{Figure1_Cuban_Missile_Crisis3a.png}
 
 }
 
-\caption{Cuban Missile Crisis}
+\caption{Cuban Missile Crisis (Part 1)}
+
+\end{figure}%
+
+\newpage{}
+
+\begin{figure}[H]
+
+{\centering \includegraphics{Figure1_Cuban_Missile_Crisis3b.png}
+
+}
+
+\caption{Cuban Missile Crisis (Part 2)}
 
 \end{figure}%
 
@@ -515,6 +530,10 @@ only does the QA step serve as a last line of defense against incorrect
 answers, it provides a diagnostic for checking and improving prompts
 without peeking at the final evaluation data. Making that comparison to
 ground truth human labels is what we turn to next.
+
+\begin{center}
+\includegraphics{Table3.png}
+\end{center}
 
 \subsection{Recall}\label{recall}
 
@@ -586,10 +605,14 @@ the target. Third, questions with options that were more self-evident
 performed better, such as speech behaviors like threats and offers,
 where questions which were more idiosyncratic to the ICBe coding rules
 performed poorly, e.g.~thought behaviors like fear, policy, discovery,
-etc. We did not fine tune, provide few shot examples, even definitions
+etc. We did not fine-tune, provide few shot examples, even definitions
 in most cases and so this is unsurprising.
 
-\section{Confusion}\label{confusion}
+\begin{center}
+\includegraphics{Table4.png}
+\end{center}
+
+\subsection{Confusion}\label{confusion}
 
 For a relatively small subset of sentences, we can dig into the specific
 disagreements between ICBeLLM and the ICBe human consensus. We only have
@@ -618,9 +641,9 @@ is appeal, which is most often confused for an offer. Disapprovals are
 confused with appeals or accusations. Rejections are confused for
 expressions of intent. Ultimatums are confused for threats and
 expressions of intent. Offers are confused for promises. And so on. We
-noted this problem in the original ICBe project that boundary between
-labels was not always well defined, and that coders developed unique
-styles exploiting synonymy of the ontology.
+noted this problem in the original ICBe project that the boundary
+between labels was not always well defined, and that coders developed
+unique styles exploiting synonymy of the ontology.
 
 \includegraphics{arxiv_Douglass_et_al_2024_ICBeLLM_files/figure-pdf/unnamed-chunk-11-1.pdf}
 
@@ -684,7 +707,7 @@ Undervalued definition and codebook authoring has been rebranded as
 `prompt engineering' for a new generation of systems with a LLM in the
 loop rather than a hired human coder. No matter the justification, this
 is a positive development for empiricism in social science. Definitions
-can now we chosen at the time of the analysis and rerun overnight rather
+can now be chosen at the time of the analysis and rerun overnight rather
 than pre-committed to years earlier in the cycle of grant raising,
 hiring, training, project management, and eventually publication. This
 reduction in the lag between theory generation and data collection from

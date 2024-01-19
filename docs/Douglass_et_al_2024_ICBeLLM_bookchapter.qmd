@@ -10,6 +10,8 @@ authors:
   - name: Erik Gartzke
     affiliation: University of California, San Diego
 highlight-style: pygments
+filters:
+  - authors-block
 pdf-engine: pdflatex
 #latex-auto-mk: false
 format:
@@ -26,14 +28,14 @@ format:
  #   html-math-method: katex
 #To compile the html bits to docx you need webshot2 installed
 #remotes::install_github('yihui/knitr')
-  # docx:
-  #   toc: false  # Table of contents for Word
-  #   toc-depth: 2
+   docx:
+     toc: false  # Table of contents for Word
+     toc-depth: 2
     #prefer-html: false
-  arxiv-pdf:
-    keep-tex: true
+#  arxiv-pdf:
+#    keep-tex: true
 #    number_sections: false
-    authorcols: true
+#    authorcols: true
 editor: source
 execute:
   output: false
@@ -874,4 +876,4 @@ The ICBe project is an example of right place at the right time. It built an ont
 
 Given the pace of technological advancement, we expect event projects to continue this trend of shifting human labor towards ontology design. Undervalued definition and codebook authoring has been rebranded as ‘prompt engineering’ for a new generation of systems with a LLM in the loop rather than a hired human coder. No matter the justification, this is a positive development for empiricism in social science. Definitions can now be chosen at the time of the analysis and rerun overnight rather than pre-committed to years earlier in the cycle of grant raising, hiring, training, project management, and eventually publication. This reduction in the lag between theory generation and data collection from an unexpected source is a critical and welcome development in the maturation of social science on international events.
 
-# Works Cited
+# References
