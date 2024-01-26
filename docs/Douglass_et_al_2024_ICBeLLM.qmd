@@ -629,8 +629,8 @@ data$Y_hat <-  data$Y_hat %>% str_replace_all(" of ", " ") %>% str_replace_all( 
 # Assuming your data is in a variable named 'data'
 p2 <- data %>% ggplot( aes(x = Y, y = Y_hat, fill = n)) +
   geom_tile() +
-  geom_text(aes(label = n), color = "white") +
-  scale_fill_gradient(low = "blue", high = "red") +
+  geom_text(aes(label = n), color = "black") +
+  scale_fill_gradient(low = "gray80", high = "gray40") +
   theme_minimal() +
   labs(title = "Thought Confusion Matrix", 
        subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single thought behavior.",
@@ -640,8 +640,7 @@ p2 <- data %>% ggplot( aes(x = Y, y = Y_hat, fill = n)) +
     #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10),
     #axis.text.y = element_text(size = 10),
     legend.position = "none"
-    ) 
-
+    )
 ```
 
 We begin first with the simplest part of the ontology, thoughts, which only have an initiating actor and just 12 possible behaviors, as seen in Figure 3. We find the largest sources of confusion to be perfectly reasonable. The two most common types of thoughts are the start and end of a crisis, and the start of the crisis is most frequently confused by ICBeLLM with the three highly similar behaviors of an actor experiencing a fear, becoming convinced of a fact, or discovering a fact. These regularly appear in the crisis narratives as the why for a crisis beginning.
@@ -702,8 +701,8 @@ data$Y_hat <- str_replace_all(data$Y_hat, " ", "\n")
 # Assuming your data is in a variable named 'data'
 p1 <- data %>% ggplot( aes(x = Y, y = Y_hat, fill = n)) +
   geom_tile() +
-  geom_text(aes(label = n), color = "white") +
-  scale_fill_gradient(low = "blue", high = "red") +
+  geom_text(aes(label = n), color = "black") +
+  scale_fill_gradient(low = "gray80", high = "gray40") +
   theme_minimal() +
   labs(title = "Speech Matrix", 
        subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single speech behavior.",
@@ -771,8 +770,8 @@ data$Y_hat <- as.character(data$Y_hat)
 p3 <- data  %>%
       ggplot( aes(x = Y, y = Y_hat, fill = n)) +
       geom_tile() +
-      geom_text(aes(label = n), color = "white") +
-      scale_fill_gradient(low = "blue", high = "red") +
+      geom_text(aes(label = n), color = "black") +
+  scale_fill_gradient(low = "gray80", high = "gray40") +
       theme_minimal() +
       labs(title = "Do Confusion Matrix",
            subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single do behavior. Only behaviors with >=5 examples.",
@@ -784,7 +783,7 @@ p3 <- data  %>%
 
 ```
 
-```{r, eval=T, fig.width=12, fig.height=8, output=T}
+```{r, eval=T, fig.width=12, fig.height=12, output=T}
 p3
 ```
 
