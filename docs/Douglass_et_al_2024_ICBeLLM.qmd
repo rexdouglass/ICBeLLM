@@ -768,18 +768,18 @@ data$Y_hat <- as.character(data$Y_hat)
 
 # Assuming your data is in a variable named 'data'
 p3 <- data  %>%
-      ggplot( aes(x = Y, y = Y_hat, fill = n)) +
-      geom_tile() +
-      geom_text(aes(label = n), color = "black") +
+  ggplot( aes(x = Y, y = Y_hat, fill = n)) +
+  geom_tile() +
+  geom_text(aes(label = n), color = "black") +
   scale_fill_gradient(low = "gray80", high = "gray40") +
-      theme_minimal() +
-      labs(title = "Do Confusion Matrix",
-           subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single do behavior. Only behaviors with >=5 examples.",
-           x = "Actual Class", y = "Predicted Class") +
-      theme_minimal() +
-      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 12),
-            axis.text.y = element_text(size = 12),
-            legend.position = "none") 
+  theme_minimal() +
+  labs(title = "Do Confusion Matrix",
+       subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single do behavior. Only behaviors with >=5 examples.",
+       x = "Actual Class", y = "Predicted Class") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 12),
+        axis.text.y = element_text(size = 12),
+        legend.position = "none") 
 
 ```
 
