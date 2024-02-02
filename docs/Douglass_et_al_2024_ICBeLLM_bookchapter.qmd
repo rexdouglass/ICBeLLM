@@ -66,7 +66,7 @@ header-includes:
 
 The International Crisis Behavior Events (ICBe) project provides a sentence-event level measurement of most thoughts, speech, and actions described in the UCB crisis summaries -- a corpus of historical narratives of an international crises [@douglassIntroducingICBeDataset2022]. The ontology represents the current state of the art in human extraction from events in dense historical narratives about international events. However, it is unwieldy and labor intensive, necessitating a search for ways to automate its application to new corpora going forward. We present a proof of concept that ICBe can be automated, using current generation open source large language models, running just on consumer grade hardware. Further, ours strategy requires no fine-tuning and limited prompt-engineering, making it easy to employ by subject experts and importantly to quickly modify to cover different topics and questions.
 
-This brief proof of concept is organized into 8 sections as follows. Section 2.0 formalizes the machine learning task: event abstraction from dense historical narratives. Section 3.0 outlines the recent state of the art in event coding and large language models. Section 4.0 describes our final technical stack and how it optimizes across a number of constraints and goals. Section 5.0 describes in detail how we map the original ICBe ontology and human coding effort to the new ICBeLLM ontology and corresponding prompting strategy. Section 6.0 then turns to evaluation. Section 6.1 evaluates the precision of ICBeLLM codings with a full visualization of the entire Cuban Missile Crisis and corresponding event codings. Section 6.2 describes the results of the quality assurance step we use to maintain high precision of codings. Section 6.3 evaluates recall against the full ICBe human based codings. We conclude evaluation with Section 6.4 a deep dive into the kinds of errors observed between the automated and human codings. A final section 7.0 concludes and situates ICBeLLM in the greater context of the rapid improvement in natural language processing in the recent past and near future.
+This brief proof of concept is organized into 8 sections as follows. Section 2 formalizes the machine learning task: event abstraction from dense historical narratives. Section 3 outlines the recent state of the art in event coding and large language models. Section 4 describes our final technical stack and how it optimizes across a number of constraints and goals. Section 5 describes in detail how we map the original ICBe ontology and human coding effort to the new ICBeLLM ontology and corresponding prompting strategy. Section 6 then turns to evaluation. Section 6.1 evaluates the precision of ICBeLLM codings with a full visualization of the entire Cuban Missile Crisis and corresponding event codings. Section 6.2 describes the results of the quality assurance step we use to maintain high precision of codings. Section 6.3 evaluates recall against the full ICBe human based codings. We conclude evaluation with Section 6.4 a deep dive into the kinds of errors observed between the automated and human codings. A final section 7 concludes and situates ICBeLLM in the greater context of the rapid improvement in natural language processing in the recent past and near future.
 
 # Task Definition and Domain
 
@@ -147,7 +147,7 @@ table1 %>%
 
 ```
 
-![](Table1.png)
+![Table 1: Mapping from ICBe ontology coding tasks to their ICBeLLM prompting strategies.](Table1.png)
 
 
 # Evaluation
@@ -354,10 +354,11 @@ tp_196 %>%
 
 {{< pagebreak >}}
 
-![Cuban Missile Crisis (Part 1)](Figure1_Cuban_Missile_Crisis3a.png)
+![Figure 1a: Cuban Missile Crisis (Part 1)](Figure1_Cuban_Missile_Crisis1_new.png)
 {{< pagebreak >}}
 
-![Cuban Missile Crisis (Part 2)](Figure1_Cuban_Missile_Crisis3b.png)
+![Figure 1b: Cuban Missile Crisis (Part 2)](Figure1_Cuban_Missile_Crisis2_new.png)
+
 
 ## Quality Control
 
@@ -536,7 +537,7 @@ ICBeLLM %>%
 
 ```
 
-![](Table3.png){fig-align="center"}
+![Table 2: Percent of behavior codings rejected by the quality assurance (QA) stage broken down by type.](Table3.png){fig-align="center"}
 
 ## Recall
 
@@ -637,7 +638,7 @@ recall_df %>%
 
 ```
 
-![](Table4.png){fig-align="center"}
+![Table 3: ICBeLLM recall versus ICbe human labels broken down by behavior/ detail.](Table4.png){fig-align="center"}
 
 ## Confusion
 
@@ -674,8 +675,8 @@ library(dendextend) ; #install.packages('dendextend')
 # Convert factors to character to avoid reordering issues
 data$Y <- as.character(data$Y)
 data$Y_hat <- as.character(data$Y_hat)
-data$Y <- data$Y %>% str_replace_all(" of ", " ") %>% str_replace_all( " ", "\n")
-data$Y_hat <-  data$Y_hat %>% str_replace_all(" of ", " ") %>% str_replace_all( " ", "\n")
+data$Y <- data$Y %>% str_replace_all(" of ", " ") %>% str_replace_all("regimegovernment", "regime / government") %>% str_wrap(width = 10) #str_replace_all( " ", "\n")
+data$Y_hat <-  data$Y_hat %>% str_replace_all(" of ", " ") %>% str_replace_all("regimegovernment", "regime / government") %>% str_wrap(width = 10)  #%>% # str_replace_all( " ", "\n")
 # Calculate distance matrices for actual and predicted classes
 #distance_actual <- dist(as.matrix(table(data$Y)))
 #distance_predicted <- dist(as.matrix(table(data$Y_hat)))
@@ -689,26 +690,29 @@ data$Y_hat <-  data$Y_hat %>% str_replace_all(" of ", " ") %>% str_replace_all( 
 #data$Y_hat <- factor(data$Y_hat, levels = labels(hc_predicted)[order.dendrogram(as.dendrogram(hc_predicted))])
 
 # Assuming your data is in a variable named 'data'
-p2 <- data %>% ggplot( aes(x = Y, y = Y_hat, fill = n)) +
-  geom_tile() +
-  geom_text(aes(label = n), color = "black") +
-  scale_fill_gradient(low = "gray80", high = "gray40") +
-  theme_minimal() +
-  labs(title = "Thought Confusion Matrix", 
-       subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single thought behavior.",
-       x = "Actual Class", y = "Predicted Class") +
-  theme_minimal() +
-  theme(
-    #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10),
-    #axis.text.y = element_text(size = 10),
-    legend.position = "none"
-    ) 
+p2 <- data %>%
+      ggplot( aes(x = Y, y = Y_hat, fill = n)) +
+      geom_tile() +
+      geom_text(aes(label = n), color = "black") +
+      scale_fill_gradient(low = "gray80", high = "gray40") +
+      theme_minimal() +
+      labs(title = "Thought Confusion Matrix", 
+           subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single thought behavior.",
+           x = "Actual Class", y = "Predicted Class") +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45,  hjust=1, size = 10), #vjust = 0.5
+        #axis.text.y = element_text(size = 10),
+        legend.position = "none"
+        ) 
 
 ```
 
 We begin first with the simplest part of the ontology, thoughts, which only have an initiating actor and just 12 possible behaviors, as seen in Figure 3. We find the largest sources of confusion to be perfectly reasonable. The two most common types of thoughts are the start and end of a crisis, and the start of the crisis is most frequently confused by ICBeLLM with the three highly similar behaviors of an actor experiencing a fear, becoming convinced of a fact, or discovering a fact. These regularly appear in the crisis narratives as the why for a crisis beginning.
 
-```{r, eval=T, fig.width=12, fig.height=8, output=T}
+```{r, eval=T, fig.width=6.5, fig.height=4.5, output=T}
+#| fig-cap: "Figure 2: Confusion matrix for ICBeLLM predicted thought behavior versus ICBe human labels."
+
 p2
 ```
 
@@ -748,8 +752,8 @@ library(dendextend) ; #install.packages('dendextend')
 # Convert factors to character to avoid reordering issues
 data$Y <- as.character(data$Y)
 data$Y_hat <- as.character(data$Y_hat)
-data$Y <- data$Y %>% str_replace_all( "  ", " ") %>% str_replace_all( " ", "\n") %>% str_replace_all( "\n\n", "\n")
-data$Y_hat <- str_replace_all(data$Y_hat, " ", "\n")
+data$Y <- data$Y %>% str_replace_all( " {2,}", " ") %>% str_wrap(width = 10) %>% str_replace_all( " ", "\n") %>% str_replace_all( "\n\n", "\n") 
+data$Y_hat <- data$Y_hat %>% str_wrap(width = 10) #%>% #str_replace_all( " ", "\n")
 # Calculate distance matrices for actual and predicted classes
 #distance_actual <- dist(as.matrix(table(data$Y)))
 #distance_predicted <- dist(as.matrix(table(data$Y_hat)))
@@ -773,7 +777,7 @@ p1 <- data %>% ggplot( aes(x = Y, y = Y_hat, fill = n)) +
        x = "Actual Class", y = "Predicted Class") +
   theme_minimal() +
   theme(
-    #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10),
+    axis.text.x = element_text(angle = 45, hjust=1, size = 10), #, vjust = 0.5
     #axis.text.y = element_text(size = 10),
     legend.position = "none"
     ) 
@@ -782,13 +786,16 @@ p1 <- data %>% ggplot( aes(x = Y, y = Y_hat, fill = n)) +
 
 The next most complicated behavior of speech shows, in Figure 4, greater but understandable confusion between behaviors. The most common speech type is appeal, which is most often confused for an offer. Disapprovals are confused with appeals or accusations. Rejections are confused for expressions of intent. Ultimatums are confused for threats and expressions of intent. Offers are confused for promises. And so on. We noted this problem in the original ICBe project that boundary between labels was not always well defined, and that coders developed unique styles exploiting synonymy of the ontology.
 
-```{r, eval=T, fig.width=12, fig.height=8, output=T}
+```{r, eval=T, fig.width=6.5, fig.height=4.5, output=T}
+#| fig-cap: "Figure 3: Confusion matrix for ICBeLLM predicted speech behavior versus ICBe human labels."
+
 p1
 ```
 
 Finally we look at confusion of the 'do' labels, paired down to only those that appear in ICBe 5 or more times as there are many possible do behaviors. Again the greatest sources of confusion, seein in Figure 5, would not lead to major substantive consequences. Attacks are most commonly confused with battles/clashes, bombardments, continuation of previous fighting, etc. Meetings are most commonly confused for discussions and vice versa. Deployments to an area are confused for invasions/occupations. In short the kinds of errors we see are what we would hope to see if our overall approach was correct but our ontology and definitions need to be clearer.
 
 ```{r}
+
 
 library(tidyverse)
 library(ggplot2)
@@ -810,12 +817,12 @@ data <- recall_df_raw %>%
   group_by(Y_hat) %>%
     mutate(Y_hat_n=n()) %>%
   ungroup() %>%
-  filter(y_n>=5)
+  filter(y_n>=6)
 
 # Assuming your data is stored in 'data'
 # Convert factors to character to avoid reordering issues
-data$Y <- as.character(data$Y)
-data$Y_hat <- as.character(data$Y_hat)
+data$Y <- as.character(data$Y) %>% str_replace("invasionoccupation","invasion / occupation") %>% str_wrap(width = 20)
+data$Y_hat <- as.character(data$Y_hat) %>% str_replace("invasionoccupation","invasion / occupation")  %>% str_wrap(width = 20)
 #data$Y <- data$Y %>% str_replace_all(" of ", " ") %>% str_replace_all( " ", "\n")
 #data$Y_hat <-  data$Y_hat %>% str_replace_all(" of ", " ") %>% str_replace_all( " ", "\n")
 # Calculate distance matrices for actual and predicted classes
@@ -838,15 +845,17 @@ p3 <- data  %>%
   scale_fill_gradient(low = "gray80", high = "gray40") +
   theme_minimal() +
   labs(title = "Do Confusion Matrix",
-       subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single do behavior. Only behaviors with >=5 examples.",
+       subtitle="Only sentences where ICBe and ICBeLLM emmitted only a single do behavior. Only behaviors with >=6 examples.",
        x = "Actual Class", y = "Predicted Class") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 12),
-        axis.text.y = element_text(size = 12),
+  theme(axis.text.x = element_text(angle = 45, hjust=1, size = 10), #, vjust = 0.5
+        axis.text.y = element_text(size = 10),
         legend.position = "none") 
 ```
 
-```{r, eval=T, fig.width=12, fig.height=12, output=T}
+```{r, eval=T, fig.width=6.5*1.5, fig.height=4.5*2.5, output=T}
+#| fig-cap: "Figure 4: Confusion matrix for ICBeLLM predicted do action versus ICBe human labels."
+
 p3
 ```
 
